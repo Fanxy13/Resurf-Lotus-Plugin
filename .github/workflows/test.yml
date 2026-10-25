@@ -1,0 +1,65 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    name: Plugin tests on macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Lotus
+        run: git clone --depth 1 https://github.com/Fanxy13/homebrew-lotus "$RUNNER_TEMP/lotus"
+
+      - name: Run the tests
+        run: zsh tests/run.zsh "$RUNNER_TEMP/lotus"
+
+  game:
+    name: The game on a Mac
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Lotus
+        run: git clone --depth 1 https://github.com/Fanxy13/homebrew-lotus "$RUNNER_TEMP/lotus"
+
+      # in case GitHub's API turns the runner's unauthenticated requests down
+      - name: The game's releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/cyberillcbutsmarter/subway-surfers-resurferd/releases?per_page=30' \
+            -o "$RUNNER_TEMP/releases.json" || true
+          jq -r '.[] | .tag_name + ": " + ([.assets[].name] | join(", "))' "$RUNNER_TEMP/releases.json" | head -10 || true
+
+      - name: Install the plugin, get the game, start it
+        env:
+          # on main: installed the way everyone installs it, from this repository on GitHub
+          RESURF_INSTALL: ${{ github.ref == 'refs/heads/main' && format('https://github.com/{0}', github.repository) || '' }}
+          RESURF_RELEASES: ${{ runner.temp }}/releases.json
+          RESURF_OUT: ${{ runner.temp }}/out
+        run: |
+          set +e
+          zsh tests/game.zsh "$RUNNER_TEMP/lotus"
+          rc=$?
+          if [ $rc -eq 3 ]; then
+            echo "::warning::No release of the game has a Mac build yet – lotus surf builds one with Unity on your Mac."
+            exit 0
+          fi
+          exit $rc
+
+      - name: Keep the game's log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-log
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
