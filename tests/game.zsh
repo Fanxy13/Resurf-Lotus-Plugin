@@ -26,6 +26,14 @@ lotus() { $ROOT/bin/lotus "$@" 2>&1 | plain }
 D=$HOME/.local/share/lotus/plugins/resurferd A="$HOME/.local/share/lotus/plugins/resurferd/Subway Surfers Resurferd.app"
 OUT=${RESURF_OUT:-$HOME/out}
 mkdir -p $OUT
+# The game keeps its save in the home folder macOS has for you, whatever $HOME says: a save of yours goes aside
+# while the test runs, and comes back after it
+zmodload zsh/parameter
+GDATA="${userdirs[$USERNAME]:-$HOME}/Library/Application Support/unity.Kiloo Games.Subway Surf"
+if [[ -e $GDATA ]]; then
+  mv -- $GDATA $GDATA.resurf-test-$$ || { print -r -- "Your save could not be put aside: $GDATA"; exit 1 }
+  TRAPEXIT() { rm -rf -- $GDATA; mv -- $GDATA.resurf-test-$$ $GDATA }
+fi
 typeset -gi bad=0
 ok()   { print -r -- "✓ $*" }
 fail() { print -r -- "✗ $*"; bad=1 }
@@ -122,9 +130,9 @@ waitlog $log "[Resurf] glow: glow gold" 20 && ok "$(grep -m1 -F '[Resurf] glow: 
 grep -F '[Resurf] glow: EFX' $log | head -1 | sed 's/^/  /'
 sleep 8
 stop $pid 1 30
-local saved=$(grep -m1 '^COINS=' "$HOME/Library/Application Support"/*/resurf/save.txt 2>/dev/null)
+local saved=$(grep -m1 "^COINS=" $GDATA/resurf/save.txt 2>/dev/null)
 [[ $saved == "COINS=$(( start + 5250 ))" ]] && ok "save.txt: $saved" || fail "save.txt says ${saved:-nothing}"
-[[ -s $(print -r -- "$HOME/Library/Application Support"/*/playerdata(N[1])) ]] && ok "the game's own save is there" || fail "the game wrote no playerdata"
+[[ -s $GDATA/playerdata ]] && ok "the game's own save is there: $GDATA/playerdata" || fail "the game wrote no playerdata in $GDATA"
 
 say "The second start – are the coins still there?"
 log=$OUT/Player-2.log

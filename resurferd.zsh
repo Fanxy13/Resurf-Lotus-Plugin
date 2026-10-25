@@ -31,6 +31,7 @@ source $LOTUS_ROOT/lib/core.zsh && source $LOTUS_ROOT/lib/ui.zsh && lotus_load |
 setopt extendedglob
 zmodload -F zsh/stat b:zstat 2>/dev/null
 zmodload zsh/datetime 2>/dev/null
+zmodload zsh/parameter 2>/dev/null     # userdirs: the home folder macOS has for you (_rs_gamedata)
 LOTUS_LOG_COMP=resurferd
 [[ $LOTUS_PLUGIN_DATA == /?* ]] || { print -u2 -r -- "lotus: resurferd runs as a Lotus plugin: lotus surf"; exit 1 }
 
@@ -126,6 +127,12 @@ _rs_mod_want() {
   reply=($m $d)
 }
 
+# The checksums of the mod and Doorstop the app should have (reply from _rs_mod_want) → REPLY
+_rs_mod_source() {
+  local m=$(shasum -a 256 < $reply[1] 2>/dev/null) d=$(shasum -a 256 < $reply[2] 2>/dev/null)
+  REPLY="mod ${m%% *} doorstop ${d%% *}"
+}
+
 # The game's real program: the app's own – or, with the mod in, the one the launcher starts (<program>.game) → REPLY
 _rs_bin() {   # <app>
   _rs_exe $1 || return 1
@@ -140,8 +147,9 @@ _rs_mod_ok() {   # <app>
   _rs_exe $1 || return 1
   exe=$REPLY
   if _rs_mod_want; then
-    [[ -f $exe.game ]] && grep -q DOORSTOP_TARGET_ASSEMBLY $exe 2>/dev/null \
-      && cmp -s -- $reply[1] $r/ResurfMod.dll && cmp -s -- $reply[2] $r/libdoorstop.dylib
+    [[ -f $exe.game && -r $r/SOURCE ]] && grep -q DOORSTOP_TARGET_ASSEMBLY $exe 2>/dev/null || return 1
+    _rs_mod_source
+    [[ $REPLY == "$(<$r/SOURCE)" ]]
   else
     [[ ! -e $exe.game && ! -e $r ]]
   fi
@@ -173,8 +181,9 @@ export DYLD_LIBRARY_PATH="\$mod\${DYLD_LIBRARY_PATH:+:\$DYLD_LIBRARY_PATH}"
 export DYLD_INSERT_LIBRARIES="\$mod/libdoorstop.dylib\${DYLD_INSERT_LIBRARIES:+:\$DYLD_INSERT_LIBRARIES}"
 exec "\$here/${exe:t}.game" "\$@"
 EOF
-    chmod +x -- $exe $exe.game
+    chmod +x $exe $exe.game          # (no --: macOS' chmod takes it for a file)
     codesign --force --sign - $r/libdoorstop.dylib >/dev/null 2>&1
+    _rs_mod_source; print -r -- $REPLY >| $r/SOURCE    # signing changes the dylib: what it came from, by checksum
   else
     [[ -f $exe.game ]] && { mv -f -- $exe.game $exe || return 1 }
     rm -rf -- $r
@@ -183,11 +192,14 @@ EOF
 }
 
 # Where the game keeps its save, and the mod its files: ~/Library/Application Support/<the app's bundle id> → REPLY
+# The home folder is the one macOS has for you, not $HOME – the game asks macOS too. GAMEDATA=<folder> in the
+# settings: another folder (the tests).
 _rs_gamedata() {
-  local id=
+  local id= home=${userdirs[$USERNAME]:-$HOME}
+  [[ -n $cfg[GAMEDATA] ]] && { REPLY=${cfg[GAMEDATA]/#\~/$HOME}; return 0 }
   [[ -r $APP/Contents/Info.plist ]] && id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' $APP/Contents/Info.plist 2>/dev/null)
   [[ -n $id && $id != */* && $id != .* ]] || id="unity.Kiloo Games.Subway Surf"
-  REPLY="$HOME/Library/Application Support/$id"
+  REPLY="$home/Library/Application Support/$id"
 }
 
 _rs_running() { pgrep -f -- "$NAME.app/Contents/MacOS/" >/dev/null 2>&1 }

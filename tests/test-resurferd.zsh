@@ -98,14 +98,14 @@ zf_mkdir -p $M/Contents/Resources/Data/Managed
 print -r -- $'#!/bin/sh\necho "the game: $DOORSTOP_ENABLED ${DOORSTOP_TARGET_ASSEMBLY##*/} $*"' >| "$M/Contents/MacOS/Subway Surf"
 print -r -- 'the mod' >| $HOME/ResurfMod.dll
 print -r -- 'the loader' >| $HOME/libdoorstop.dylib
-print -r -- $'RELEASES=file://'$R$'/releases.json\nMOD='$HOME$'/ResurfMod.dll\nDOORSTOP='$HOME/libdoorstop.dylib >| $D/settings
-GD="$HOME/Library/Application Support/unity.Kiloo Games.Subway Surf"
+GD="$HOME/Library/Application Support/unity.Kiloo Games.Subway Surf"     # the game's folder: never the real one
+print -r -- $'RELEASES=file://'$R$'/releases.json\nMOD='$HOME$'/ResurfMod.dll\nDOORSTOP='$HOME$'/libdoorstop.dylib\nGAMEDATA='$GD >| $D/settings
 BIN="$A/Contents/MacOS/Subway Surf" RES=$A/Contents/Resources/Resurf
 check_has "a Mono build: installed" "$(lotus surf install $M 2>&1 | plain)" "Ready: Subway Surfers Resurferd"
 check_eq "the mod and Doorstop are in the app" "$(<$RES/ResurfMod.dll) – $(<$RES/libdoorstop.dylib)" "the mod – the loader"
 check_has "  the game's program is the launcher now" "$(<$BIN)" 'DOORSTOP_TARGET_ASSEMBLY="$mod/ResurfMod.dll"'
 check_has "  the game's own one next to it" "$(<$BIN.game)" "the game:"
-check_eq "  the launcher sets Doorstop up and starts the game" "$($BIN -logFile x 2>/dev/null)" "the game: 1 ResurfMod.dll -logFile x"
+check_eq "  the launcher sets Doorstop up and starts the game" "$($BIN -logFile x 2>&1)" "the game: 1 ResurfMod.dll -logFile x"
 check_has "status names it" "$(lotus surf status 2>&1 | plain)" "Resurf – coins, the save, the FPS counter, the glow"
 lotus surf mod on >/dev/null 2>&1
 check_has "put in twice: the game's own program stays" "$(<$BIN.game)" "the game:"

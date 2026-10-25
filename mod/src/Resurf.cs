@@ -134,7 +134,7 @@ namespace Resurf
 
         string dir, inbox, settingsFile, saveFile;
         DateTime settingsTime;
-        bool fps, fixGlow = true;
+        bool fps, fixGlow = true, glowSaid, saveSaid;
         string last = "";
         float nextInbox, nextSettings, nextSave, glowUntil, nextGlow;
         readonly HashSet<int> fixedGlows = new HashSet<int>();
@@ -176,6 +176,7 @@ namespace Resurf
             if (now >= nextSave) { nextSave = now + 20f; SaveGame("every 20 seconds"); }
             // prefabs come later than the scene (the coins' pool, popups): look again for a while
             if (fixGlow && now < glowUntil && now >= nextGlow) { nextGlow = now + 2f; FixGlows(); }
+            if (fixGlow && now >= glowUntil && !glowSaid) { glowSaid = true; Log("glow: no glow material came in 30 seconds"); }
         }
 
         void OnApplicationFocus(bool focus) { if (!focus) SaveGame("the window lost focus"); }
@@ -187,16 +188,25 @@ namespace Resurf
         void FixGlows()
         {
             var shader = Shader.Find(Additive);
-            if (shader == null) { Log("glow: there is no " + Additive + " in this build – left as it is"); fixGlow = false; return; }
+            var seen = new List<string>();
             foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
             {
-                if (m == null || m.shader == null || m.shader.name != "Mobile/SprayPaint") continue;
+                if (m == null) continue;
                 bool glow = false;
                 foreach (var g in Glows) if (m.name == g || m.name.StartsWith(g + " ")) glow = true;
-                if (!glow || fixedGlows.Contains(m.GetInstanceID())) continue;
+                if (!glow) continue;
+                var was = m.shader == null ? "no shader" : m.shader.name;
+                seen.Add(m.name + " (" + was + ")");
+                if (shader == null || was != "Mobile/SprayPaint" || fixedGlows.Contains(m.GetInstanceID())) continue;
                 m.shader = shader;
                 fixedGlows.Add(m.GetInstanceID());
                 Log("glow: " + m.name + " is drawn with " + Additive + " now");
+            }
+            // once: what there is – for when nothing above matched
+            if (seen.Count > 0 && !glowSaid)
+            {
+                glowSaid = true;
+                Log("glow: found " + string.Join(", ", seen.ToArray()) + (shader == null ? " – there is no " + Additive + " in this build" : ""));
             }
         }
 
@@ -263,6 +273,7 @@ namespace Resurf
                 File.WriteAllText(tmp, sb.ToString());
                 if (File.Exists(saveFile)) File.Delete(saveFile);
                 File.Move(tmp, saveFile);
+                if (!saveSaid) { saveSaid = true; Log("save: " + saveFile + " (" + why + ")"); }
             }
             catch (Exception e) { Log("could not write " + saveFile + ": " + e.Message); }
         }
