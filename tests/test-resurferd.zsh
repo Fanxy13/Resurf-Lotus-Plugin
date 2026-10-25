@@ -105,7 +105,11 @@ check_has "a Mono build: installed" "$(lotus surf install $M 2>&1 | plain)" "Rea
 check_eq "the mod and Doorstop are in the app" "$(<$RES/ResurfMod.dll) – $(<$RES/libdoorstop.dylib)" "the mod – the loader"
 check_has "  the game's program is the launcher now" "$(<$BIN)" 'DOORSTOP_TARGET_ASSEMBLY="$mod/ResurfMod.dll"'
 check_has "  the game's own one next to it" "$(<$BIN.game)" "the game:"
-check_eq "  the launcher sets Doorstop up and starts the game" "$($BIN -logFile x 2>&1)" "the game: 1 ResurfMod.dll -logFile x"
+# (a copy that says what it would start: macOS' dyld would load the fake Doorstop for real – tests/game.zsh starts the
+# game with the real one)
+sed 's|^exec .*|echo "the game: $DOORSTOP_ENABLED ${DOORSTOP_TARGET_ASSEMBLY##*/} ${DYLD_INSERT_LIBRARIES##*/} $*"|' $BIN >| $HOME/launcher.sh
+check_eq "  the launcher sets Doorstop up" "$(sh $HOME/launcher.sh -logFile x 2>&1)" "the game: 1 ResurfMod.dll libdoorstop.dylib -logFile x"
+check_has "  and starts the game with what it got" "$(<$BIN)" 'exec "$here/Subway Surf.game" "$@"'
 check_has "status names it" "$(lotus surf status 2>&1 | plain)" "Resurf – coins, the save, the FPS counter, the glow"
 lotus surf mod on >/dev/null 2>&1
 check_has "put in twice: the game's own program stays" "$(<$BIN.game)" "the game:"
