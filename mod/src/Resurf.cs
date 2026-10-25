@@ -1,6 +1,7 @@
 // Resurf – a small mod for the Mac build of Subway Surfers Resurferd, put into the app by the Lotus plugin resurferd.
-// The game loads it at start (Data/ScriptingAssemblies.json, Data/RuntimeInitializeOnLoads.json); nothing of the
-// game's own code is changed. It talks with Lotus through files in <persistentDataPath>/resurf:
+// Unity Doorstop loads it when the game starts (Doorstop.Entrypoint.Start below – the app's program is a launcher
+// that sets Doorstop up); nothing of the game's own code is changed. It talks with Lotus through files in
+// <persistentDataPath>/resurf:
 //   inbox/<id>.req   from Lotus: "coins +5000" or "coins =5000" – done, then deleted
 //   settings         from Lotus (and the F key): FPS=on|off, GLOW=fix|original
 //   save.txt         to Lotus: coins, high score, best distance … and LAST=<id of the newest request done>
@@ -19,11 +20,45 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
+namespace Doorstop
+{
+    // Unity Doorstop calls this as soon as Mono runs – before Unity is ready, so nothing of Unity is touched here:
+    // it waits for the game's own code (Unity loads it for the first scene), and Resurf.Boot waits for that scene.
+    public static class Entrypoint
+    {
+        public static void Start()
+        {
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                if (a.GetName().Name == "Assembly-CSharp") { Resurf.Boot.Hook(); return; }
+            AppDomain.CurrentDomain.AssemblyLoad += OnLoad;
+        }
+
+        static void OnLoad(object sender, AssemblyLoadEventArgs e)
+        {
+            if (e.LoadedAssembly.GetName().Name != "Assembly-CSharp") return;
+            AppDomain.CurrentDomain.AssemblyLoad -= OnLoad;
+            Resurf.Boot.Hook();
+        }
+    }
+}
+
 namespace Resurf
 {
     public static class Boot
     {
         public const string Version = "1.0";
+
+        // The first loaded scene starts the mod (Unity is ready then)
+        public static void Hook()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            Start();
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         public static void Start()

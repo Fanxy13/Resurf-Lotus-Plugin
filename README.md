@@ -36,8 +36,11 @@ Either way, Lotus then does what a Mac needs before it opens a game like this:
 ## The Resurf mod
 
 Lotus puts a small mod into the game – [mod/src/Resurf.cs](mod/src/Resurf.cs), built into
-[mod/ResurfMod.dll](mod/ResurfMod.dll). It goes into the app's own code folder and onto the two lists Unity reads
-when the game starts; nothing of the game's own code changes, and `lotus surf mod off` takes it out again.
+[mod/ResurfMod.dll](mod/ResurfMod.dll). [Unity Doorstop](https://github.com/NeighTools/UnityDoorstop) loads it when
+the game starts (the loader BepInEx uses; LGPL-2.1, its macOS build in [mod/doorstop](mod/doorstop) with its
+license and where it came from). The game's program becomes a small launcher that sets Doorstop up and starts the
+real one, so the Finder, the Dock and `lotus surf` start it as before. Nothing of the game's own code changes, and
+`lotus surf mod off` gives the game its own program back.
 
 - **The coins' glow** – the project draws it with a spray-paint shader that blends, so the dark pixels around the
   glow make a black edge. The mod draws it with the project's additive shader, as a glow is drawn (the mystery
@@ -50,9 +53,10 @@ when the game starts; nothing of the game's own code changes, and `lotus surf mo
   `~/Library/Application Support/unity.Kiloo Games.Subway Surf` – `lotus surf stats` shows it.
 - **An FPS counter** – bottom left, green from 50, yellow from 30, red below: `lotus surf fps`, or **F** in the game.
 
-GitHub Actions builds the DLL against the libraries of the game's own Mac build, tests it in the game – coins that
-waited, coins while it runs, the glow, the coins still there after a restart – and only then puts it into the
-repository. `zsh mod/build.zsh <the app>` builds it yourself (with .NET's `csc` or Mono's `mcs`).
+GitHub Actions builds the DLL against the libraries of the game's own Mac build, takes Doorstop's official macOS
+build (checked against GitHub's SHA-256), tests both in the game – coins that waited, coins while it runs, the glow,
+the coins still there after a restart, the game started by macOS as the Dock does – and only then puts them into
+the repository. `zsh mod/build.zsh <the app>` builds the DLL yourself (with .NET's `csc` or Mono's `mcs`).
 
 ## Commands
 

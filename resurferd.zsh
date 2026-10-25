@@ -114,51 +114,70 @@ _rs_fix() {   # <app>
 
 # ── The Resurf mod (mod/): coins from Lotus, a save that holds, an FPS counter, the coins' glow ──
 
-# The mod the app should have: mod/ResurfMod.dll – MOD=<file> in the settings another one, MOD=off none → REPLY
+# What the app should have: the mod (mod/ResurfMod.dll) and Unity Doorstop, which loads it
+# (mod/doorstop/libdoorstop.dylib) – MOD=<file> and DOORSTOP=<file> in the settings other ones, MOD=off neither
+# → reply (mod doorstop); status 1 when there should be none, or the plugin has not both
 _rs_mod_want() {
-  REPLY=
+  reply=()
   [[ $cfg[MOD] == off ]] && return 1
-  REPLY=${${cfg[MOD]:-$LOTUS_PLUGIN_DIR/mod/ResurfMod.dll}/#\~/$HOME}
-  [[ -r $REPLY ]] || { REPLY=; return 1 }
+  local m=${${cfg[MOD]:-$LOTUS_PLUGIN_DIR/mod/ResurfMod.dll}/#\~/$HOME}
+  local d=${${cfg[DOORSTOP]:-$LOTUS_PLUGIN_DIR/mod/doorstop/libdoorstop.dylib}/#\~/$HOME}
+  [[ -r $m && -r $d ]] || return 1
+  reply=($m $d)
 }
 
-# Has the app the mod it should have – or none, when it should have none? (A game without Mono: yes.)
+# The game's real program: the app's own – or, with the mod in, the one the launcher starts (<program>.game) → REPLY
+_rs_bin() {   # <app>
+  _rs_exe $1 || return 1
+  [[ -f $REPLY.game ]] && REPLY=$REPLY.game
+  return 0
+}
+
+# Has the app the mod it should have – or none, when it should have none? (A build without Mono: yes.)
 _rs_mod_ok() {   # <app>
-  local managed=$1/Contents/Resources/Data/Managed
-  [[ -r $managed/../ScriptingAssemblies.json ]] || return 0
-  if _rs_mod_want; then cmp -s -- $REPLY $managed/ResurfMod.dll
-  else [[ ! -e $managed/ResurfMod.dll ]]; fi
-}
-
-# A JSON file changed in place by jq – only when jq could read it
-_rs_json() {   # <file> <jq program>
-  local out
-  out=$(lotus_jq -c $2 $1 2>/dev/null) && [[ -n $out ]] || return 1
-  print -r -- $out >| $1.tmp && mv -f -- $1.tmp $1
-}
-
-# The mod into a Unity Mono build: into its folder Managed, and into the two lists Unity reads when the game starts –
-# the assemblies it loads (ScriptingAssemblies.json) and what it calls then (RuntimeInitializeOnLoads.json). Nothing
-# of the game's own code changes. When there should be no mod, it comes out again. A build without Mono (IL2CPP)
-# has neither list and stays as it is.
-_rs_mod() {   # <app>
-  local data=$1/Contents/Resources/Data
-  local managed=$data/Managed sa=$data/ScriptingAssemblies.json ri=$data/RuntimeInitializeOnLoads.json
-  local entry='{"assemblyName":"ResurfMod","nameSpace":"Resurf","className":"Boot","methodName":"Start","loadTypes":0,"isUnityClass":false}'
-  [[ -d $managed && -r $sa ]] || return 0
+  local r=$1/Contents/Resources/Resurf exe
+  [[ -d $1/Contents/Resources/Data/Managed ]] || return 0
+  _rs_exe $1 || return 1
+  exe=$REPLY
   if _rs_mod_want; then
-    cp -f -- $REPLY $managed/ResurfMod.dll || return 1
-    _rs_json $sa '(.names | index("ResurfMod.dll")) as $i | if $i then . else
-        .types[(.names | index("Assembly-CSharp.dll")) // 0] as $t | .names += ["ResurfMod.dll"] | .types += [$t] end' || return 1
-    if [[ -r $ri ]]; then
-      _rs_json $ri ".root = ((.root // []) | map(select(.assemblyName != \"ResurfMod\"))) + [$entry]" || return 1
-    else
-      print -r -- "{\"root\":[$entry]}" >| $ri || return 1
-    fi
+    [[ -f $exe.game ]] && grep -q DOORSTOP_TARGET_ASSEMBLY $exe 2>/dev/null \
+      && cmp -s -- $reply[1] $r/ResurfMod.dll && cmp -s -- $reply[2] $r/libdoorstop.dylib
   else
-    rm -f -- $managed/ResurfMod.dll
-    _rs_json $sa '(.names | index("ResurfMod.dll")) as $i | if $i then (.names |= del(.[$i])) | (.types |= del(.[$i])) else . end'
-    [[ -r $ri ]] && _rs_json $ri '.root = ((.root // []) | map(select(.assemblyName != "ResurfMod")))'
+    [[ ! -e $exe.game && ! -e $r ]]
+  fi
+}
+
+# The mod into a Unity Mono build, loaded by Unity Doorstop: the app's program becomes a small launcher that sets
+# Doorstop up and starts the real one (<program>.game) – so the Finder, the Dock and lotus surf start it as before.
+# The mod and Doorstop go into Contents/Resources/Resurf; of the game's own files only the program's name changes.
+# When there should be no mod, it all comes out again and the program gets its name back. A build without Mono
+# (IL2CPP) has nothing for Doorstop and stays as it is.
+_rs_mod() {   # <app>
+  local r=$1/Contents/Resources/Resurf exe
+  [[ -n $1 && -d $1/Contents/Resources/Data/Managed ]] || return 0
+  _rs_exe $1 || return 1
+  exe=$REPLY
+  [[ ${exe:t} == [A-Za-z0-9\ ._-]## ]] || return 1        # the launcher names it in quotes
+  if _rs_mod_want; then
+    mkdir -p -- $r && cp -f -- $reply[1] $r/ResurfMod.dll && cp -f -- $reply[2] $r/libdoorstop.dylib || return 1
+    [[ -f $exe.game ]] || mv -- $exe $exe.game || return 1
+    cat >| $exe <<EOF || return 1
+#!/bin/sh
+# $NAME with the Resurf mod: Unity Doorstop loads it, then the game (${exe:t}.game) starts.
+# Put here by the Lotus plugin resurferd – lotus surf mod off gives the game its own program back.
+here=\$(cd "\$(dirname "\$0")" && pwd)
+mod="\$here/../Resources/Resurf"
+export DOORSTOP_ENABLED=1
+export DOORSTOP_TARGET_ASSEMBLY="\$mod/ResurfMod.dll"
+export DYLD_LIBRARY_PATH="\$mod\${DYLD_LIBRARY_PATH:+:\$DYLD_LIBRARY_PATH}"
+export DYLD_INSERT_LIBRARIES="\$mod/libdoorstop.dylib\${DYLD_INSERT_LIBRARIES:+:\$DYLD_INSERT_LIBRARIES}"
+exec "\$here/${exe:t}.game" "\$@"
+EOF
+    chmod +x -- $exe $exe.game
+    codesign --force --sign - $r/libdoorstop.dylib >/dev/null 2>&1
+  else
+    [[ -f $exe.game ]] && { mv -f -- $exe.game $exe || return 1 }
+    rm -rf -- $r
   fi
   return 0
 }
@@ -650,7 +669,8 @@ _rs_launch() {   # [arguments for the game]
   _rs_exe $APP || return 1
   local exe=$REPLY
   [[ -x $exe ]] && _rs_mod_ok $APP || _rs_fix $APP     # moved or unpacked by hand, or the plugin brought a newer mod
-  _rs_arch $exe
+  _rs_bin $APP
+  _rs_arch $REPLY
   [[ $REPLY == intel ]] && _rs_apple_silicon && ! _rs_rosetta \
     && ui_info "It is an Intel app: macOS asks to install Rosetta 2 the first time – say yes."
   if (( $# )); then open $APP --args "$@"; else open $APP; fi || return 1
@@ -730,7 +750,7 @@ rs_install_file() {   # <zip|app>
 rs_status() {
   _rs_kv $INFO; game=("${(@kv)KV}")
   ui_header "$NAME" "github.com/$REPO"
-  if _rs_exe $APP; then
+  if _rs_bin $APP; then
     local kind from
     _rs_arch $REPLY
     case $REPLY in
@@ -751,7 +771,7 @@ rs_status() {
     ui_path $APP; ui_kv Where "$REPLY"
     _rs_size $APP; ui_kv Size "$REPLY"
     [[ -n $kind ]] && ui_kv Kind "$kind"
-    if [[ ! -r $APP/Contents/Resources/Data/ScriptingAssemblies.json ]]; then ui_kv Mod "this build has no Mono folder – no Resurf mod"
+    if [[ ! -d $APP/Contents/Resources/Data/Managed ]]; then ui_kv Mod "this build has no Mono folder – no Resurf mod"
     elif _rs_mod_want; then _rs_mod_ok $APP && ui_kv Mod "Resurf – coins, the save, the FPS counter, the glow" || ui_kv Mod "not in it yet – lotus surf puts it in"
     elif [[ $cfg[MOD] == off ]]; then ui_kv Mod "off – the game as it is (lotus surf mod on)"
     else ui_kv Mod "missing from the plugin – lotus plugin update resurferd"; fi
@@ -802,7 +822,7 @@ _rs_mod_ready() {
   _rs_exe $APP || { ui_error "The game is not on this Mac yet" "" "lotus surf gets it"; return 1 }
   if ! _rs_mod_want; then
     if [[ $cfg[MOD] == off ]]; then ui_error "The Resurf mod is off" "" "lotus surf mod on"
-    else ui_error "The Resurf mod is missing from the plugin" "${cfg[MOD]:-$LOTUS_PLUGIN_DIR/mod/ResurfMod.dll}" "lotus plugin update resurferd"; fi
+    else ui_error "The Resurf mod is missing from the plugin" "mod/ResurfMod.dll and mod/doorstop/libdoorstop.dylib" "lotus plugin update resurferd"; fi
     return 1
   fi
   _rs_mod_ok $APP && return 0

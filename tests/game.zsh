@@ -2,9 +2,10 @@
 # The real thing on a Mac: zsh tests/game.zsh [Lotus folder]
 # The plugin is installed (from $RESURF_INSTALL – a git URL – or this folder), lotus surf get takes the Mac build of
 # the game's newest GitHub release and makes it run on macOS. The Resurf mod is built against that build's own
-# libraries (mod/build.zsh) and put in with lotus surf mod on. Then the game starts twice without a window
-# (-batchmode -nographics): the first time coins come from Lotus – waiting ones when it starts, more while it runs –
-# and the coins' glow is fixed; the second time the coins must still be there, from the game's own save.
+# libraries (mod/build.zsh) and put in with lotus surf mod on, with Unity Doorstop ($RESURF_DOORSTOP, else the
+# plugin's). Then the game starts without a window (-batchmode -nographics): the first time coins come from Lotus –
+# waiting ones when it starts, more while it runs – and the coins' glow is fixed; the second time the coins must
+# still be there, from the game's own save; the third time macOS starts it (open), as the Finder and the Dock do.
 # It needs the internet and changes nothing of yours (an empty home) – CI runs it on GitHub's macOS runners.
 # $RESURF_RELEASES: a release list to use when GitHub's API says no (CI fetches it with its token).
 # $RESURF_OUT: where the logs and the mod go (the mod as ResurfMod.dll – CI keeps it).
@@ -69,15 +70,15 @@ print -r -- "  Managed: ${managed:-none} – $(ls $A/$managed 2>/dev/null | past
 [[ -n $managed ]] && for f in $(cd $A && find . -name boot.config); do print -r -- "  $f:"; sed 's/^/    /' $A/$f; done
 
 say "The Resurf mod, built against the game's own libraries"
-local data=$A/Contents/Resources/Data
-print -r -- "  ScriptingAssemblies.json: $(head -c 400 $data/ScriptingAssemblies.json)"
-print -r -- "  RuntimeInitializeOnLoads.json: $(head -c 400 $data/RuntimeInitializeOnLoads.json 2>/dev/null || print '(none)')"
+local res=$A/Contents/Resources/Resurf
 zsh -f $PLUGIN/mod/build.zsh $A $OUT/ResurfMod.dll || { print -r -- "✗ the mod did not build"; exit 1 }
 print -r -- "MOD=$OUT/ResurfMod.dll" >> $D/settings
+[[ -r $RESURF_DOORSTOP ]] && print -r -- "DOORSTOP=${RESURF_DOORSTOP:A}" >> $D/settings
 lotus surf mod on
-cmp -s $OUT/ResurfMod.dll $data/Managed/ResurfMod.dll && ok "the mod is in the game" || fail "the mod is not in the game"
-grep -q '"ResurfMod.dll"' $data/ScriptingAssemblies.json && ok "Unity is told to load it" || fail "ScriptingAssemblies.json does not name it"
-grep -q '"ResurfMod"' $data/RuntimeInitializeOnLoads.json && ok "and to start it" || fail "RuntimeInitializeOnLoads.json does not name it"
+cmp -s $OUT/ResurfMod.dll $res/ResurfMod.dll && ok "the mod is in the game" || fail "the mod is not in the game"
+[[ -s $res/libdoorstop.dylib ]] && ok "Unity Doorstop too: $(file -b $res/libdoorstop.dylib | cut -c1-80)" || fail "Doorstop is not in the game"
+grep -q DOORSTOP_TARGET_ASSEMBLY $exe && [[ -x $exe.game ]] && ok "the launcher starts ${exe:t}.game with Doorstop" || fail "no launcher in the game"
+print -r -- "  the launcher:"; sed 's/^/    /' $exe
 if codesign --verify --deep --strict $A 2>$OUT/codesign.txt; then ok "signed for this Mac, with the mod: $(codesign -dv $A 2>&1 | grep -m1 '^Signature=')"
 else fail "the signature does not hold:"; sed 's/^/    /' $OUT/codesign.txt; fi
 
@@ -86,7 +87,7 @@ lotus surf coins 5000
 lotus surf fps on
 
 # An Intel build on Apple silicon needs Rosetta 2 (GitHub's runners may not have it yet)
-if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == 1 && $(file -b $exe) != *arm64* ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == 1 && $(file -b $exe.game) != *arm64* ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
   say "Installing Rosetta 2"
   sudo softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || softwareupdate --install-rosetta --agree-to-license
 fi
@@ -133,6 +134,13 @@ waitlog $log "[Resurf] coins $(( start + 5250 )) (from the game's save)" 60 \
 sleep 10
 stop $pid 2 15
 lotus surf stats
+
+say "The third start – the way the Finder and the Dock start it (open, Launch Services)"
+log=$OUT/Player-3.log
+open -n $A --args -batchmode -nographics -logFile $log
+waitlog $log "[Resurf] mod" 60 && ok "started by macOS, with the mod: $(grep -m1 -F '[Resurf] mod' $log | cut -c1-80)" \
+  || fail "started by macOS, the mod did not load: $(tail -n 5 $log 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+pkill -TERM -f "$A/Contents/MacOS/" 2>/dev/null; sleep 3; pkill -KILL -f "$A/Contents/MacOS/" 2>/dev/null
 
 say "The game's logs"
 for log in $OUT/Player-*.log(N); do

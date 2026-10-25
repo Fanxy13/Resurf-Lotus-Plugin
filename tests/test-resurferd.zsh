@@ -95,19 +95,20 @@ check_has "something that is no Mac build" "$(lotus surf install $R/releases.jso
 M=$HOME/mono/StandaloneOSX.app
 zf_mkdir -p $M:h && cp -R $R/build/StandaloneOSX.app $M
 zf_mkdir -p $M/Contents/Resources/Data/Managed
-print -r -- '{"names":["UnityEngine.CoreModule.dll","Assembly-CSharp.dll"],"types":[16,2]}' >| $M/Contents/Resources/Data/ScriptingAssemblies.json
+print -r -- $'#!/bin/sh\necho "the game: $DOORSTOP_ENABLED ${DOORSTOP_TARGET_ASSEMBLY##*/} $*"' >| "$M/Contents/MacOS/Subway Surf"
 print -r -- 'the mod' >| $HOME/ResurfMod.dll
-print -r -- $'RELEASES=file://'$R$'/releases.json\nMOD='$HOME/ResurfMod.dll >| $D/settings
+print -r -- 'the loader' >| $HOME/libdoorstop.dylib
+print -r -- $'RELEASES=file://'$R$'/releases.json\nMOD='$HOME$'/ResurfMod.dll\nDOORSTOP='$HOME/libdoorstop.dylib >| $D/settings
 GD="$HOME/Library/Application Support/unity.Kiloo Games.Subway Surf"
-DATA=$A/Contents/Resources/Data
+BIN="$A/Contents/MacOS/Subway Surf" RES=$A/Contents/Resources/Resurf
 check_has "a Mono build: installed" "$(lotus surf install $M 2>&1 | plain)" "Ready: Subway Surfers Resurferd"
-check_eq "the mod is in its Managed folder" "$(<$DATA/Managed/ResurfMod.dll)" "the mod"
-check_eq "  Unity loads it, as Assembly-CSharp" "$(jq -c . $DATA/ScriptingAssemblies.json)" \
-  '{"names":["UnityEngine.CoreModule.dll","Assembly-CSharp.dll","ResurfMod.dll"],"types":[16,2,2]}'
-check_eq "  and starts it" "$(jq -c '.root[0] | [.assemblyName, .className, .methodName]' $DATA/RuntimeInitializeOnLoads.json)" '["ResurfMod","Boot","Start"]'
+check_eq "the mod and Doorstop are in the app" "$(<$RES/ResurfMod.dll) – $(<$RES/libdoorstop.dylib)" "the mod – the loader"
+check_has "  the game's program is the launcher now" "$(<$BIN)" 'DOORSTOP_TARGET_ASSEMBLY="$mod/ResurfMod.dll"'
+check_has "  the game's own one next to it" "$(<$BIN.game)" "the game:"
+check_eq "  the launcher sets Doorstop up and starts the game" "$($BIN -logFile x 2>/dev/null)" "the game: 1 ResurfMod.dll -logFile x"
 check_has "status names it" "$(lotus surf status 2>&1 | plain)" "Resurf – coins, the save, the FPS counter, the glow"
-lotus surf install $M >/dev/null 2>&1
-check_eq "installed twice: in each list once" "$(jq -c '[(.names | length), (.types | length)]' $DATA/ScriptingAssemblies.json) $(jq '.root | length' $DATA/RuntimeInitializeOnLoads.json)" "[3,3] 1"
+lotus surf mod on >/dev/null 2>&1
+check_has "put in twice: the game's own program stays" "$(<$BIN.game)" "the game:"
 
 check_has "coins: the game is closed – they wait" "$(lotus surf coins 5000 2>&1 | plain)" "+5,000 coins are waiting – the game takes them when it starts"
 req=($GD/resurf/inbox/*.req(N))
@@ -134,11 +135,11 @@ check_eq "  next to FPS" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original'
 print -r -- 'a newer mod' >| $HOME/ResurfMod.dll
 check_has "a newer mod: the game has it not yet" "$(lotus surf mod 2>&1 | plain)" "has it not yet"
 lotus surf mod on >/dev/null 2>&1
-check_eq "  mod on puts it in" "$(<$DATA/Managed/ResurfMod.dll)" "a newer mod"
+check_eq "  mod on puts it in" "$(<$RES/ResurfMod.dll)" "a newer mod"
 check_has "mod off" "$(lotus surf mod off 2>&1 | plain)" "off – the game as it is"
-check "  out of the Managed folder" test ! -e $DATA/Managed/ResurfMod.dll
-check_eq "  and out of both lists" "$(jq -c . $DATA/ScriptingAssemblies.json) $(jq -c . $DATA/RuntimeInitializeOnLoads.json)" \
-  '{"names":["UnityEngine.CoreModule.dll","Assembly-CSharp.dll"],"types":[16,2]} {"root":[]}'
+check "  the mod and Doorstop are out" test ! -e $RES
+check_has "  the game has its own program back" "$(<$BIN)" "the game:"
+check "  and no launcher is left" test ! -e $BIN.game
 check_has "coins without the mod" "$(lotus surf coins 5 2>&1 | plain)" "The Resurf mod is off"
 
 # ── built from the source: a git repository and a Unity that says what $HOME/unity.mode says ──

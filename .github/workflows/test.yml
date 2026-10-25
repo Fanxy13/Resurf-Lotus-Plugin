@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DOORSTOP_VERSION: v4.6.0
+
 jobs:
   plugin:
     name: Plugin tests on macOS
@@ -25,7 +28,7 @@ jobs:
     name: The game on a Mac, with the mod
     runs-on: macos-15
     permissions:
-      contents: write   # on main: the mod it built and tested goes into mod/ResurfMod.dll
+      contents: write   # on main: the mod and Doorstop it tested go into mod/
     steps:
       - uses: actions/checkout@v5
 
@@ -42,14 +45,44 @@ jobs:
             -o "$RUNNER_TEMP/releases.json" || true
           jq -r '.[] | .tag_name + ": " + ([.assets[].name] | join(", "))' "$RUNNER_TEMP/releases.json" | head -10 || true
 
-      - name: Get the game, build the mod, play twice
+      # The loader that starts the mod: Unity Doorstop's official macOS build, checked against GitHub's SHA-256
+      - name: Unity Doorstop ${{ env.DOORSTOP_VERSION }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          w="$RUNNER_TEMP/doorstop"; mkdir -p "$w/x" "$RUNNER_TEMP/out"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/NeighTools/UnityDoorstop/releases/tags/$DOORSTOP_VERSION" -o "$w/release.json"
+          jq -r '.assets[] | "  \(.name)  \(.size)  \(.digest // "-")"' "$w/release.json"
+          jq -c '[.assets[] | select((.name | test("mac"; "i")) and (.name | test("release"; "i")) and (.name | test("\\.zip$")))][0]' "$w/release.json" > "$w/asset.json"
+          url=$(jq -r .browser_download_url "$w/asset.json"); want=$(jq -r '.digest // ""' "$w/asset.json")
+          curl -fsSL -o "$w/doorstop.zip" "$url"
+          sum=$(shasum -a 256 "$w/doorstop.zip" | cut -d' ' -f1)
+          echo "$url"; echo "sha256:$sum (GitHub: ${want:-none})"
+          if [ -n "$want" ] && [ "sha256:$sum" != "$want" ]; then echo "::error::Doorstop is not the file GitHub promised"; exit 1; fi
+          unzip -q -o "$w/doorstop.zip" -d "$w/x"
+          (cd "$w/x" && find . -type f | sort)
+          lib=""
+          for f in $(find "$w/x" -name libdoorstop.dylib); do
+            echo "  ${f#$w/x/}: $(file -b "$f")"
+            if [ -z "$lib" ] && file -b "$f" | grep -q x86_64; then lib=$f; fi
+          done
+          if [ -z "$lib" ]; then echo "::error::No libdoorstop.dylib for Intel Macs in $url"; exit 1; fi
+          cp "$lib" "$RUNNER_TEMP/out/libdoorstop.dylib"
+          printf 'Unity Doorstop %s – %s\nfrom %s (sha256:%s)\nlibdoorstop.dylib: %s, sha256:%s\n' "$DOORSTOP_VERSION" \
+            "https://github.com/NeighTools/UnityDoorstop" "$url" "$sum" "${lib#$w/x/}" \
+            "$(shasum -a 256 "$lib" | cut -d' ' -f1)" > "$RUNNER_TEMP/out/doorstop-source.txt"
+          cat "$RUNNER_TEMP/out/doorstop-source.txt"
+
+      - name: Get the game, build the mod, play three times
         env:
           # on main: installed the way everyone installs it, from this repository on GitHub
           RESURF_INSTALL: ${{ github.ref == 'refs/heads/main' && format('https://github.com/{0}', github.repository) || '' }}
           RESURF_RELEASES: ${{ runner.temp }}/releases.json
+          RESURF_DOORSTOP: ${{ runner.temp }}/out/libdoorstop.dylib
           RESURF_OUT: ${{ runner.temp }}/out
         run: |
-          dotnet --list-sdks || true
           set +e
           zsh tests/game.zsh "$RUNNER_TEMP/lotus"
           rc=$?
@@ -67,15 +100,17 @@ jobs:
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
 
-      - name: The mod it built and tested, into the repository
+      - name: The mod and Doorstop it tested, into the repository
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          new="$RUNNER_TEMP/out/ResurfMod.dll"
-          if [ ! -f "$new" ]; then echo "No mod was built."; exit 0; fi
-          if cmp -s "$new" mod/ResurfMod.dll; then echo "mod/ResurfMod.dll is the one built from this source."; exit 0; fi
-          cp "$new" mod/ResurfMod.dll
+          out="$RUNNER_TEMP/out"
+          if [ ! -f "$out/ResurfMod.dll" ] || [ ! -f "$out/libdoorstop.dylib" ]; then echo "Nothing was built."; exit 0; fi
+          cp "$out/ResurfMod.dll" mod/ResurfMod.dll
+          cp "$out/libdoorstop.dylib" mod/doorstop/libdoorstop.dylib
+          cp "$out/doorstop-source.txt" mod/doorstop/SOURCE
+          git add mod/ResurfMod.dll mod/doorstop/libdoorstop.dylib mod/doorstop/SOURCE
+          if git diff --cached --quiet; then echo "mod/ is what this source and Doorstop $DOORSTOP_VERSION give."; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mod/ResurfMod.dll
-          git commit -m "mod/ResurfMod.dll: built from ${GITHUB_SHA::7} against the game's own libraries, tested in the game"
+          git commit -m "mod/: ResurfMod.dll built from ${GITHUB_SHA::7}, Unity Doorstop $DOORSTOP_VERSION – tested in the game"
           git pull --rebase origin main && git push origin HEAD:main
