@@ -22,8 +22,10 @@ jobs:
         run: zsh tests/run.zsh "$RUNNER_TEMP/lotus"
 
   game:
-    name: The game on a Mac
+    name: The game on a Mac, with the mod
     runs-on: macos-15
+    permissions:
+      contents: write   # on main: the mod it built and tested goes into mod/ResurfMod.dll
     steps:
       - uses: actions/checkout@v5
 
@@ -40,13 +42,14 @@ jobs:
             -o "$RUNNER_TEMP/releases.json" || true
           jq -r '.[] | .tag_name + ": " + ([.assets[].name] | join(", "))' "$RUNNER_TEMP/releases.json" | head -10 || true
 
-      - name: Install the plugin, get the game, start it
+      - name: Get the game, build the mod, play twice
         env:
           # on main: installed the way everyone installs it, from this repository on GitHub
           RESURF_INSTALL: ${{ github.ref == 'refs/heads/main' && format('https://github.com/{0}', github.repository) || '' }}
           RESURF_RELEASES: ${{ runner.temp }}/releases.json
           RESURF_OUT: ${{ runner.temp }}/out
         run: |
+          dotnet --list-sdks || true
           set +e
           zsh tests/game.zsh "$RUNNER_TEMP/lotus"
           rc=$?
@@ -56,10 +59,23 @@ jobs:
           fi
           exit $rc
 
-      - name: Keep the game's log
+      - name: Keep the game's logs and the mod
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: game-log
+          name: game-and-mod
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+
+      - name: The mod it built and tested, into the repository
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          new="$RUNNER_TEMP/out/ResurfMod.dll"
+          if [ ! -f "$new" ]; then echo "No mod was built."; exit 0; fi
+          if cmp -s "$new" mod/ResurfMod.dll; then echo "mod/ResurfMod.dll is the one built from this source."; exit 0; fi
+          cp "$new" mod/ResurfMod.dll
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mod/ResurfMod.dll
+          git commit -m "mod/ResurfMod.dll: built from ${GITHUB_SHA::7} against the game's own libraries, tested in the game"
+          git pull --rebase origin main && git push origin HEAD:main

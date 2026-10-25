@@ -8,6 +8,12 @@
 #   lotus surf status               where it is, where it came from, what it needs
 #   lotus surf log                  what Unity said in the last build
 #   lotus surf remove               the game and its source go (asks) – your progress in the game stays
+#   lotus surf coins [<n>|set <n>]  coins for the game (the Resurf mod hands them over) – without a number: how many
+#   lotus surf stats                coins, high score, best distance … as the game saved them
+#   lotus surf fps [on|off]         the FPS counter in the game · glow fix|original · mod on|off
+# The Resurf mod (mod/ResurfMod.dll, its source in mod/src) goes into the app with the rest of _rs_fix: the game
+# loads it at start. It fixes the coins' glow, saves the game reliably, writes a readable save, shows the FPS and
+# takes coins from Lotus – the files it shares with Lotus are in <the game's folder>/resurf (_rs_gamedata).
 # The game is a Unity 2019.4 project. Its Mac build either comes from its GitHub releases (made on Linux by its CI:
 # not executable, not signed) or Unity builds it here. Either way Lotus makes it run on macOS: the program
 # executable, out of quarantine, signed for this Mac. Unity 2019 builds for Intel Macs – Apple silicon runs it
@@ -94,14 +100,93 @@ _rs_arch() {   # <program>
 }
 
 # What a Mac build from Linux (the game's CI) or from a download needs before macOS opens it: its program
-# executable, no quarantine (and no Finder data, which breaks a signature), an ad-hoc signature for this Mac
+# executable, no quarantine (and no Finder data, which breaks a signature), the Resurf mod, an ad-hoc signature for
+# this Mac – last, it covers the mod too
 _rs_fix() {   # <app>
   _rs_exe $1 || return 1
   chmod -R u+rwX $1 2>/dev/null
   chmod +x $1/Contents/MacOS/*(.N) 2>/dev/null
   xattr -cr $1 2>/dev/null
+  _rs_mod $1 || lotus_log WARN resurferd "the Resurf mod could not be put into ${1:t}"
   codesign --force --deep --sign - $1 >/dev/null 2>&1 || lotus_log WARN resurferd "codesign could not sign ${1:t}"
   return 0
+}
+
+# ── The Resurf mod (mod/): coins from Lotus, a save that holds, an FPS counter, the coins' glow ──
+
+# The mod the app should have: mod/ResurfMod.dll – MOD=<file> in the settings another one, MOD=off none → REPLY
+_rs_mod_want() {
+  REPLY=
+  [[ $cfg[MOD] == off ]] && return 1
+  REPLY=${${cfg[MOD]:-$LOTUS_PLUGIN_DIR/mod/ResurfMod.dll}/#\~/$HOME}
+  [[ -r $REPLY ]] || { REPLY=; return 1 }
+}
+
+# Has the app the mod it should have – or none, when it should have none? (A game without Mono: yes.)
+_rs_mod_ok() {   # <app>
+  local managed=$1/Contents/Resources/Data/Managed
+  [[ -r $managed/../ScriptingAssemblies.json ]] || return 0
+  if _rs_mod_want; then cmp -s -- $REPLY $managed/ResurfMod.dll
+  else [[ ! -e $managed/ResurfMod.dll ]]; fi
+}
+
+# A JSON file changed in place by jq – only when jq could read it
+_rs_json() {   # <file> <jq program>
+  local out
+  out=$(lotus_jq -c $2 $1 2>/dev/null) && [[ -n $out ]] || return 1
+  print -r -- $out >| $1.tmp && mv -f -- $1.tmp $1
+}
+
+# The mod into a Unity Mono build: into its folder Managed, and into the two lists Unity reads when the game starts –
+# the assemblies it loads (ScriptingAssemblies.json) and what it calls then (RuntimeInitializeOnLoads.json). Nothing
+# of the game's own code changes. When there should be no mod, it comes out again. A build without Mono (IL2CPP)
+# has neither list and stays as it is.
+_rs_mod() {   # <app>
+  local data=$1/Contents/Resources/Data
+  local managed=$data/Managed sa=$data/ScriptingAssemblies.json ri=$data/RuntimeInitializeOnLoads.json
+  local entry='{"assemblyName":"ResurfMod","nameSpace":"Resurf","className":"Boot","methodName":"Start","loadTypes":0,"isUnityClass":false}'
+  [[ -d $managed && -r $sa ]] || return 0
+  if _rs_mod_want; then
+    cp -f -- $REPLY $managed/ResurfMod.dll || return 1
+    _rs_json $sa '(.names | index("ResurfMod.dll")) as $i | if $i then . else
+        .types[(.names | index("Assembly-CSharp.dll")) // 0] as $t | .names += ["ResurfMod.dll"] | .types += [$t] end' || return 1
+    if [[ -r $ri ]]; then
+      _rs_json $ri ".root = ((.root // []) | map(select(.assemblyName != \"ResurfMod\"))) + [$entry]" || return 1
+    else
+      print -r -- "{\"root\":[$entry]}" >| $ri || return 1
+    fi
+  else
+    rm -f -- $managed/ResurfMod.dll
+    _rs_json $sa '(.names | index("ResurfMod.dll")) as $i | if $i then (.names |= del(.[$i])) | (.types |= del(.[$i])) else . end'
+    [[ -r $ri ]] && _rs_json $ri '.root = ((.root // []) | map(select(.assemblyName != "ResurfMod")))'
+  fi
+  return 0
+}
+
+# Where the game keeps its save, and the mod its files: ~/Library/Application Support/<the app's bundle id> → REPLY
+_rs_gamedata() {
+  local id=
+  [[ -r $APP/Contents/Info.plist ]] && id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' $APP/Contents/Info.plist 2>/dev/null)
+  [[ -n $id && $id != */* && $id != .* ]] || id="unity.Kiloo Games.Subway Surf"
+  REPLY="$HOME/Library/Application Support/$id"
+}
+
+_rs_running() { pgrep -f -- "$NAME.app/Contents/MacOS/" >/dev/null 2>&1 }
+
+# One KEY=value line of a settings file – the other lines stay; without a value the line goes
+_rs_set_line() {   # <file> <KEY> [value]
+  local f=$1 line
+  local -a keep=()
+  [[ -r $f ]] && for line in "${(@f)$(<$f)}"; do [[ -n $line && $line != $2=* ]] && keep+=($line); done
+  (( $# > 2 )) && keep+=("$2=$3")
+  mkdir -p -- ${f:h} && print -rl -- $keep >| $f
+}
+
+# 12345 → 12,345 → REPLY
+_rs_num() {
+  local s=$1 out=
+  while (( ${#s} > 3 )); do out=,${s[-3,-1]}$out; s=${s[1,-4]}; done
+  REPLY=$s$out
 }
 
 # How much room a file or folder takes, like 312M → REPLY
@@ -563,8 +648,9 @@ rs_get() {
 
 _rs_launch() {   # [arguments for the game]
   _rs_exe $APP || return 1
-  [[ -x $REPLY ]] || _rs_fix $APP
-  _rs_arch $REPLY
+  local exe=$REPLY
+  [[ -x $exe ]] && _rs_mod_ok $APP || _rs_fix $APP     # moved or unpacked by hand, or the plugin brought a newer mod
+  _rs_arch $exe
   [[ $REPLY == intel ]] && _rs_apple_silicon && ! _rs_rosetta \
     && ui_info "It is an Intel app: macOS asks to install Rosetta 2 the first time – say yes."
   if (( $# )); then open $APP --args "$@"; else open $APP; fi || return 1
@@ -665,6 +751,10 @@ rs_status() {
     ui_path $APP; ui_kv Where "$REPLY"
     _rs_size $APP; ui_kv Size "$REPLY"
     [[ -n $kind ]] && ui_kv Kind "$kind"
+    if [[ ! -r $APP/Contents/Resources/Data/ScriptingAssemblies.json ]]; then ui_kv Mod "this build has no Mono folder – no Resurf mod"
+    elif _rs_mod_want; then _rs_mod_ok $APP && ui_kv Mod "Resurf – coins, the save, the FPS counter, the glow" || ui_kv Mod "not in it yet – lotus surf puts it in"
+    elif [[ $cfg[MOD] == off ]]; then ui_kv Mod "off – the game as it is (lotus surf mod on)"
+    else ui_kv Mod "missing from the plugin – lotus plugin update resurferd"; fi
   else
     ui_kv Game "not on this Mac yet – lotus surf gets it"
   fi
@@ -703,6 +793,153 @@ rs_remove() {
   ui_success "Removed – lotus surf gets the game again"
 }
 
+# ── Coins, the FPS counter, the glow, the save: through the Resurf mod ──
+
+# The mod has to be in the game for these – put in now when it is missing (a running game loads it when it starts)
+# → status 1 when it cannot be; RS_FRESH=1 when it was put in just now
+_rs_mod_ready() {
+  typeset -gi RS_FRESH=0
+  _rs_exe $APP || { ui_error "The game is not on this Mac yet" "" "lotus surf gets it"; return 1 }
+  if ! _rs_mod_want; then
+    if [[ $cfg[MOD] == off ]]; then ui_error "The Resurf mod is off" "" "lotus surf mod on"
+    else ui_error "The Resurf mod is missing from the plugin" "${cfg[MOD]:-$LOTUS_PLUGIN_DIR/mod/ResurfMod.dll}" "lotus plugin update resurferd"; fi
+    return 1
+  fi
+  _rs_mod_ok $APP && return 0
+  _rs_fix $APP && _rs_mod_ok $APP || { ui_error "The Resurf mod could not be put into the game" "$APP" "This build has no Mono folder – lotus surf status"; return 1 }
+  RS_FRESH=1
+}
+
+# lotus surf coins [<n> | set <n>]: coins for the game – a running game takes them within a second, else the game
+# takes them when it starts. Without a number: how many there are.
+rs_coins() {
+  _rs_gamedata
+  local dir=$REPLY/resurf how=+ n=$1 id
+  [[ $1 == set ]] && { how='=' n=$2 }
+  if [[ -z $n ]]; then
+    _rs_kv $dir/save.txt
+    if [[ $KV[COINS] == <-> ]]; then
+      _rs_num $KV[COINS]; ui_success "$REPLY coins${KV[SAVED]:+ – saved $KV[SAVED]}"
+      ui_dim "  More: lotus surf coins 5000 · exactly so many: lotus surf coins set 100000"
+    else
+      ui_info "Lotus knows your coins once the game has run with the Resurf mod – lotus surf"
+    fi
+    return 0
+  fi
+  n=${${n#+}//[,_.\']/}
+  if [[ $n != <-> ]] || (( ${#n} > 10 )) || (( n > 2147483647 )); then
+    ui_error "How many coins?" "$n" "lotus surf coins 5000 · lotus surf coins set 100000 – at most 2,147,483,647"
+    return 2
+  fi
+  _rs_mod_ready || return 1
+  id=$(strftime %Y%m%d-%H%M%S $EPOCHSECONDS)-$RANDOM
+  mkdir -p -- $dir/inbox && print -r -- "coins $how$(( n ))" >| $dir/inbox/.$id.tmp && mv -f -- $dir/inbox/.$id.tmp $dir/inbox/$id.req \
+    || { ui_error "The coins could not be handed to the game" "$dir/inbox"; return 1 }
+  lotus_log INFO resurferd "coins $how$n"
+  _rs_num $n; local amount=$REPLY
+  if _rs_running && (( ! RS_FRESH )); then
+    local -i i
+    for (( i = 0; i < 40; i++ )); do
+      _rs_kv $dir/save.txt
+      if [[ $KV[LAST] == $id ]]; then
+        _rs_num $KV[COINS]
+        if [[ $how == + ]]; then ui_success "+$amount coins – you have $REPLY now"
+        else ui_success "You have $REPLY coins now"; fi
+        return 0
+      fi
+      sleep 0.1
+    done
+    ui_info "The game has not taken them yet – it does as soon as it runs with the Resurf mod (start it again if it was open before)."
+    return 0
+  fi
+  if [[ $how == + ]]; then ui_success "+$amount coins are waiting – the game takes them when it starts: lotus surf"
+  else ui_success "$amount coins are waiting – the game takes them when it starts: lotus surf"; fi
+  (( RS_FRESH )) && _rs_running && ui_dim "  The open game has no mod yet – quit it (⌘Q) and start it again."
+  return 0
+}
+
+# A setting of the mod, in <the game's folder>/resurf/settings – the game reads it within a second
+_rs_mod_setting() {   # <KEY> <value>
+  _rs_gamedata
+  _rs_set_line "$REPLY/resurf/settings" $1 $2
+}
+
+# lotus surf fps [on|off]: the FPS counter, bottom left in the game – without a word it switches
+rs_fps() {
+  _rs_gamedata
+  _rs_kv "$REPLY/resurf/settings"
+  local want=$1
+  [[ -n $want ]] || { [[ $KV[FPS] == on ]] && want=off || want=on }
+  [[ $want == (on|off) ]] || { ui_error "Unknown: lotus surf fps $1" "" "lotus surf fps on, or off"; return 2 }
+  _rs_mod_ready || return 1
+  _rs_mod_setting FPS $want
+  if [[ $want == on ]]; then ui_success "The FPS counter is on – bottom left in the game; F switches it there too"
+  else ui_success "The FPS counter is off – F in the game, or lotus surf fps on"; fi
+}
+
+# lotus surf glow [fix|original]: the coins' glow drawn as a glow (fix), or as the project draws it, black edge and all
+rs_glow() {
+  _rs_gamedata
+  _rs_kv "$REPLY/resurf/settings"
+  [[ -n $1 ]] || { ui_kv Glow "${KV[GLOW]:-fix} – lotus surf glow fix, or original"; return 0 }
+  [[ $1 == (fix|original) ]] || { ui_error "Unknown: lotus surf glow $1" "" "lotus surf glow fix, or original"; return 2 }
+  _rs_mod_ready || return 1
+  _rs_mod_setting GLOW $1
+  [[ $1 == fix ]] && ui_success "The coins glow without the black edge – from the next start of the game" \
+                  || ui_success "The glow is drawn as the project draws it – from the next start of the game"
+}
+
+# lotus surf stats: what the game saved – the mod writes it readable next to the game's own save
+rs_stats() {
+  _rs_gamedata
+  local gd=$REPLY k label
+  _rs_kv $gd/resurf/save.txt
+  ui_header "$NAME" "your game"
+  if [[ -z $KV[COINS] ]]; then
+    ui_info "No save from the Resurf mod yet – play once: lotus surf"
+    ui_blank
+    return 0
+  fi
+  for k label in COINS Coins HIGHSCORE "High score" BEST_METERS "Best distance" MYSTERY_BOXES "Mystery boxes" \
+      SUPER_MYSTERY_BOXES "Super boxes" MISSIONS Missions MULTIPLIER Multiplier DAILY_WORDS_IN_A_ROW "Words in a row"; do
+    [[ $KV[$k] == <-> ]] || continue
+    _rs_num $KV[$k]
+    case $k in
+      BEST_METERS) REPLY+=" m" ;;
+      MULTIPLIER)  REPLY="×$REPLY" ;;
+    esac
+    ui_kv $label $REPLY
+  done
+  ui_kv Saved "${KV[SAVED]:-?}${KV[SAVED]:+ – every 20 seconds, when the game loses focus and when it quits}"
+  ui_path $gd/playerdata; ui_kv "Game's save" $REPLY
+  ui_path $gd/resurf/save.txt; ui_kv Readable $REPLY
+  ui_blank
+}
+
+# lotus surf mod [on|off]: the Resurf mod in the game, or the game as it is
+rs_mod() {
+  case $1 in
+    on)  [[ $cfg[MOD] == off ]] && { _rs_set_line $D/settings MOD; cfg[MOD]= } ;;
+    off) _rs_set_line $D/settings MOD off; cfg[MOD]=off ;;
+    '')  ;;
+    *)   ui_error "Unknown: lotus surf mod $1" "" "lotus surf mod on, or off"; return 2 ;;
+  esac
+  if [[ -n $1 ]] && _rs_exe $APP; then
+    _rs_fix $APP
+    _rs_running && ui_dim "  The open game keeps what it had – quit it (⌘Q) and start it again."
+  fi
+  if _rs_mod_want; then
+    ui_kv Mod "on – coins from Lotus, a save that holds, an FPS counter, the coins' glow"
+    if _rs_exe $APP; then
+      _rs_mod_ok $APP && ui_kv Game "has it" || ui_kv Game "has it not yet – lotus surf puts it in when it starts the game"
+    fi
+  elif [[ $cfg[MOD] == off ]]; then
+    ui_kv Mod "off – the game as it is (lotus surf mod on)"
+  else
+    ui_kv Mod "missing from the plugin – lotus plugin update resurferd"
+  fi
+}
+
 # For the AI (tool play): plain words, status 3 when the user has to get the game first
 rs_tool_play() {
   if ! _rs_exe $APP; then
@@ -723,10 +960,16 @@ rs_help() {
   lotus surf install <zip|app>    a Mac build you downloaded yourself
   lotus surf status               where it is, where it came from, what it needs
   lotus surf log                  what Unity said in the last build
-  lotus surf remove               the game and its source go – your progress stays"
+  lotus surf remove               the game and its source go – your progress stays
+
+  lotus surf coins 5000           coins for the game – lotus surf coins shows them, coins set 100000 sets them
+  lotus surf stats                coins, high score, best distance … as the game saved them
+  lotus surf fps                  the FPS counter on or off (F in the game too)
+  lotus surf glow fix|original    the coins' glow without the black edge (fix), or as the project draws it
+  lotus surf mod on|off           the Resurf mod in the game, or the game as it is"
   ui_blank
   ui_path $D/settings
-  ui_dim "  Settings in $REPLY: REPO=owner/name (a fork), GET=auto|release|build, UNITY=<Unity.app>"
+  ui_dim "  Settings in $REPLY: REPO=owner/name (a fork), GET=auto|release|build, UNITY=<Unity.app>, MOD=off|<dll>"
   ui_blank
 }
 
@@ -741,6 +984,11 @@ case ${1:-play} in
   status|info)                 rs_status ;;
   log|logs)                    rs_log ;;
   remove|uninstall|rm)         rs_remove ;;
+  coins|coin)                  rs_coins "${@:2}" ;;
+  fps)                         rs_fps "$2" ;;
+  glow)                        rs_glow "$2" ;;
+  stats|save|score)            rs_stats ;;
+  mod)                         rs_mod "$2" ;;
   tool-play)                   rs_tool_play ;;
   help|-h|--help)              rs_help ;;
   *)                           ui_error "Unknown: lotus surf $1" "" "lotus surf help shows what it can do"; exit 2 ;;

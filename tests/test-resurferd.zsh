@@ -91,6 +91,56 @@ info; check_eq "  noted as yours" "$REPLY" "FROM=file VERSION=My Build.app"
 check_has "install a zip" "$(lotus surf install $R/mac.zip 2>&1 | plain)" "from mac.zip"
 check_has "something that is no Mac build" "$(lotus surf install $R/releases.json 2>&1 | plain)" "A Mac build is a .zip or an .app"
 
+# ── the Resurf mod: into a Unity Mono build, the coins, the FPS counter, the save – and out again ──
+M=$HOME/mono/StandaloneOSX.app
+zf_mkdir -p $M:h && cp -R $R/build/StandaloneOSX.app $M
+zf_mkdir -p $M/Contents/Resources/Data/Managed
+print -r -- '{"names":["UnityEngine.CoreModule.dll","Assembly-CSharp.dll"],"types":[16,2]}' >| $M/Contents/Resources/Data/ScriptingAssemblies.json
+print -r -- 'the mod' >| $HOME/ResurfMod.dll
+print -r -- $'RELEASES=file://'$R$'/releases.json\nMOD='$HOME/ResurfMod.dll >| $D/settings
+GD="$HOME/Library/Application Support/unity.Kiloo Games.Subway Surf"
+DATA=$A/Contents/Resources/Data
+check_has "a Mono build: installed" "$(lotus surf install $M 2>&1 | plain)" "Ready: Subway Surfers Resurferd"
+check_eq "the mod is in its Managed folder" "$(<$DATA/Managed/ResurfMod.dll)" "the mod"
+check_eq "  Unity loads it, as Assembly-CSharp" "$(jq -c . $DATA/ScriptingAssemblies.json)" \
+  '{"names":["UnityEngine.CoreModule.dll","Assembly-CSharp.dll","ResurfMod.dll"],"types":[16,2,2]}'
+check_eq "  and starts it" "$(jq -c '.root[0] | [.assemblyName, .className, .methodName]' $DATA/RuntimeInitializeOnLoads.json)" '["ResurfMod","Boot","Start"]'
+check_has "status names it" "$(lotus surf status 2>&1 | plain)" "Resurf – coins, the save, the FPS counter, the glow"
+lotus surf install $M >/dev/null 2>&1
+check_eq "installed twice: in each list once" "$(jq -c '[(.names | length), (.types | length)]' $DATA/ScriptingAssemblies.json) $(jq '.root | length' $DATA/RuntimeInitializeOnLoads.json)" "[3,3] 1"
+
+check_has "coins: the game is closed – they wait" "$(lotus surf coins 5000 2>&1 | plain)" "+5,000 coins are waiting – the game takes them when it starts"
+req=($GD/resurf/inbox/*.req(N))
+check_eq "  handed to the game" "${#req} $(<$req[1])" "1 coins +5000"
+check_has "coins set, with commas" "$(lotus surf coins set 1,000 2>&1 | plain)" "1,000 coins are waiting"
+check_eq "  as =1000" "$(cat $GD/resurf/inbox/*.req(N) | sort | paste -sd' ' -)" "coins +5000 coins =1000"
+check_has "coins: not a number" "$(lotus surf coins lots 2>&1 | plain)" "How many coins?"
+check_has "coins: too many" "$(lotus surf coins 99999999999 2>&1 | plain)" "at most 2,147,483,647"
+check_has "coins before the game ever saved" "$(lotus surf coins 2>&1 | plain)" "once the game has run with the Resurf mod"
+print -r -- $'COINS=12345\nHIGHSCORE=987654\nBEST_METERS=4321\nMULTIPLIER=6\nSAVED=2026-10-25 12:00:00\nLAST=x' >| $GD/resurf/save.txt
+check_has "coins: what the game saved" "$(lotus surf coins 2>&1 | plain)" "12,345 coins – saved 2026-10-25 12:00:00"
+out=$(lotus surf stats 2>&1 | plain)
+check_has "stats: the high score" "$out" "High score  987,654"
+check_has "  the best distance" "$out" "4,321 m"
+check_has "  the multiplier" "$out" "×6"
+
+check_has "fps: on" "$(lotus surf fps 2>&1 | plain)" "The FPS counter is on"
+check_eq "  for the game" "$(<$GD/resurf/settings)" "FPS=on"
+check_has "fps again: off" "$(lotus surf fps 2>&1 | plain)" "The FPS counter is off"
+check_has "fps: a word it does not know" "$(lotus surf fps maybe 2>&1 | plain)" "lotus surf fps on, or off"
+check_has "glow original" "$(lotus surf glow original 2>&1 | plain)" "as the project draws it"
+check_eq "  next to FPS" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original'
+
+print -r -- 'a newer mod' >| $HOME/ResurfMod.dll
+check_has "a newer mod: the game has it not yet" "$(lotus surf mod 2>&1 | plain)" "has it not yet"
+lotus surf mod on >/dev/null 2>&1
+check_eq "  mod on puts it in" "$(<$DATA/Managed/ResurfMod.dll)" "a newer mod"
+check_has "mod off" "$(lotus surf mod off 2>&1 | plain)" "off – the game as it is"
+check "  out of the Managed folder" test ! -e $DATA/Managed/ResurfMod.dll
+check_eq "  and out of both lists" "$(jq -c . $DATA/ScriptingAssemblies.json) $(jq -c . $DATA/RuntimeInitializeOnLoads.json)" \
+  '{"names":["UnityEngine.CoreModule.dll","Assembly-CSharp.dll"],"types":[16,2]} {"root":[]}'
+check_has "coins without the mod" "$(lotus surf coins 5 2>&1 | plain)" "The Resurf mod is off"
+
 # ── built from the source: a git repository and a Unity that says what $HOME/unity.mode says ──
 G=$HOME/src
 zf_mkdir -p $G/ProjectSettings $G/Assets/Scripts $G/Assets/Mesh
@@ -129,7 +179,7 @@ check_has "  and how to get the free one" "$out" "Get a free personal license"
 print -r -- compile >| $HOME/unity.mode
 out=$(lotus surf build 2>&1 | plain)
 check_has "scripts that do not compile: Unity's words" "$out" "Assets/Scripts/A.cs(1,7): error CS0246"
-info; check_eq "  the game before it stays" "$REPLY" "FROM=file VERSION=mac.zip"
+info; check_eq "  the game before it stays" "$REPLY" "FROM=file VERSION=StandaloneOSX.app"
 print -r -- good >| $HOME/unity.mode
 out=$(lotus surf build 2>&1 | plain)
 check_has "built" "$out" "Ready: Subway Surfers Resurferd, built from"

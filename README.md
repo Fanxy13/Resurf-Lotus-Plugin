@@ -33,6 +33,27 @@ Either way, Lotus then does what a Mac needs before it opens a game like this:
 - **Rosetta 2 on Apple silicon** – Unity 2019 makes Intel apps; macOS offers Rosetta the first time, and Lotus
   offers it before Unity runs
 
+## The Resurf mod
+
+Lotus puts a small mod into the game – [mod/src/Resurf.cs](mod/src/Resurf.cs), built into
+[mod/ResurfMod.dll](mod/ResurfMod.dll). It goes into the app's own code folder and onto the two lists Unity reads
+when the game starts; nothing of the game's own code changes, and `lotus surf mod off` takes it out again.
+
+- **The coins' glow** – the project draws it with a spray-paint shader that blends, so the dark pixels around the
+  glow make a black edge. The mod draws it with the project's additive shader, as a glow is drawn (the mystery
+  box's glow too).
+- **Coins from Lotus** – `lotus surf coins 5000`: a running game has them within a second, a closed one when it
+  starts.
+- **A save that holds** – the game itself saves only after a run's coins are counted (and when a phone sends it
+  away). The mod also saves every 20 seconds, when the window loses focus and when you quit (⌘Q), and writes a
+  readable copy, `resurf/save.txt`, next to the game's own `playerdata` in
+  `~/Library/Application Support/unity.Kiloo Games.Subway Surf` – `lotus surf stats` shows it.
+- **An FPS counter** – bottom left, green from 50, yellow from 30, red below: `lotus surf fps`, or **F** in the game.
+
+GitHub Actions builds the DLL against the libraries of the game's own Mac build, tests it in the game – coins that
+waited, coins while it runs, the glow, the coins still there after a restart – and only then puts it into the
+repository. `zsh mod/build.zsh <the app>` builds it yourself (with .NET's `csc` or Mono's `mcs`).
+
 ## Commands
 
 | | |
@@ -46,6 +67,11 @@ Either way, Lotus then does what a Mac needs before it opens a game like this:
 | `lotus surf status` | where it is, where it came from, what it needs |
 | `lotus surf log` | what Unity said in the last build |
 | `lotus surf remove` | the game and its source go (it asks) – your progress in the game stays |
+| `lotus surf coins 5000` | 5000 coins more in the game – `coins` alone shows them, `coins set 100000` sets them |
+| `lotus surf stats` | coins, high score, best distance, mystery boxes, missions – as the game saved them |
+| `lotus surf fps` | the FPS counter on or off (bottom left; **F** in the game switches it too) |
+| `lotus surf glow fix\|original` | the coins' glow without the black edge (the default), or as the project draws it |
+| `lotus surf mod on\|off` | the Resurf mod in the game, or the game as it is |
 
 `lotus resurferd …` is the same as `lotus surf …`, and in a Lotus shell both work as `/surf`. The AI in `/ai` can
 start the game too.
