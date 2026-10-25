@@ -61,6 +61,13 @@ exe=$A/Contents/MacOS/$exe
 print -r -- "  $(file -b $exe)"
 xattr -p com.apple.quarantine $A >/dev/null 2>&1 && fail "still in quarantine" || ok "not in quarantine"
 
+say "Inside the app"
+(cd $A/Contents && find . -maxdepth 4 ! -path '*/Managed/*' ! -path '*/MonoBleedingEdge/*' ! -path '*/_CodeSignature/*' | sort | head -60 | sed 's/^/  /')
+print -r -- "  every .json and boot.config: $(cd $A && find . \( -name '*.json' -o -name boot.config \) | paste -sd' ' -)"
+local managed=$(cd $A && find . -type d -name Managed | head -1)
+print -r -- "  Managed: ${managed:-none} – $(ls $A/$managed 2>/dev/null | paste -sd' ' - | cut -c1-600)"
+[[ -n $managed ]] && for f in $(cd $A && find . -name boot.config); do print -r -- "  $f:"; sed 's/^/    /' $A/$f; done
+
 say "The Resurf mod, built against the game's own libraries"
 local data=$A/Contents/Resources/Data
 print -r -- "  ScriptingAssemblies.json: $(head -c 400 $data/ScriptingAssemblies.json)"
