@@ -28,8 +28,9 @@ OUT=${RESURF_OUT:-$HOME/out}
 mkdir -p $OUT
 # The game keeps its save in the home folder macOS has for you, whatever $HOME says: a save of yours goes aside
 # while the test runs, and comes back after it
-zmodload zsh/parameter
-GDATA="${userdirs[$USERNAME]:-$HOME}/Library/Application Support/unity.Kiloo Games.Subway Surf"
+local realhome=${~:-~$USERNAME}           # ~user asks macOS – userdirs knows only /etc/passwd
+[[ $realhome == /?* && -d $realhome ]] || realhome=$HOME
+GDATA="$realhome/Library/Application Support/unity.Kiloo Games.Subway Surf"
 if [[ -e $GDATA ]]; then
   mv -- $GDATA $GDATA.resurf-test-$$ || { print -r -- "Your save could not be put aside: $GDATA"; exit 1 }
   TRAPEXIT() { rm -rf -- $GDATA; mv -- $GDATA.resurf-test-$$ $GDATA }

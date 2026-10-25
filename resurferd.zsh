@@ -31,7 +31,7 @@ source $LOTUS_ROOT/lib/core.zsh && source $LOTUS_ROOT/lib/ui.zsh && lotus_load |
 setopt extendedglob
 zmodload -F zsh/stat b:zstat 2>/dev/null
 zmodload zsh/datetime 2>/dev/null
-zmodload zsh/parameter 2>/dev/null     # userdirs: the home folder macOS has for you (_rs_gamedata)
+
 LOTUS_LOG_COMP=resurferd
 [[ $LOTUS_PLUGIN_DATA == /?* ]] || { print -u2 -r -- "lotus: resurferd runs as a Lotus plugin: lotus surf"; exit 1 }
 
@@ -192,10 +192,11 @@ EOF
 }
 
 # Where the game keeps its save, and the mod its files: ~/Library/Application Support/<the app's bundle id> → REPLY
-# The home folder is the one macOS has for you, not $HOME – the game asks macOS too. GAMEDATA=<folder> in the
-# settings: another folder (the tests).
+# The home folder is the one macOS has for you, not $HOME – the game asks macOS too (~user asks it; userdirs knows
+# only /etc/passwd, not the people of this Mac). GAMEDATA=<folder> in the settings: another folder (the tests).
 _rs_gamedata() {
-  local id= home=${userdirs[$USERNAME]:-$HOME}
+  local id= home=${~:-~$USERNAME}
+  [[ $home == /?* && -d $home ]] || home=$HOME
   [[ -n $cfg[GAMEDATA] ]] && { REPLY=${cfg[GAMEDATA]/#\~/$HOME}; return 0 }
   [[ -r $APP/Contents/Info.plist ]] && id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' $APP/Contents/Info.plist 2>/dev/null)
   [[ -n $id && $id != */* && $id != .* ]] || id="unity.Kiloo Games.Subway Surf"

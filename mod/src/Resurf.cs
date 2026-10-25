@@ -197,7 +197,9 @@ namespace Resurf
                 if (!glow) continue;
                 var was = m.shader == null ? "no shader" : m.shader.name;
                 seen.Add(m.name + " (" + was + ")");
-                if (shader == null || was != "Mobile/SprayPaint" || fixedGlows.Contains(m.GetInstanceID())) continue;
+                // the stand-ins of the project: Mobile/SprayPaint, and in the release's build Mobile/SprayPaint_TextShadow –
+                // which takes its alpha from main.png, a texture without one: an opaque square around every coin
+                if (shader == null || !was.StartsWith("Mobile/SprayPaint") || fixedGlows.Contains(m.GetInstanceID())) continue;
                 m.shader = shader;
                 fixedGlows.Add(m.GetInstanceID());
                 Log("glow: " + m.name + " is drawn with " + Additive + " now");
