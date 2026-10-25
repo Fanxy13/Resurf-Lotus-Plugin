@@ -15,9 +15,11 @@ just starts it.
 
 The game is a Unity 2019.4 project. Two ways bring it to your Mac:
 
-1. **A ready Mac build** – the `…-StandaloneOSX.zip` of the game's newest
-   [GitHub release](https://github.com/cyberillcbutsmarter/subway-surfers-resurferd/releases), checked against the
-   SHA-256 GitHub gives for it.
+1. **A ready Mac build** – the `…-StandaloneOSX.zip` of the newest
+   [GitHub release](https://github.com/cyberillcbutsmarter/subway-surfers-resurferd/releases) that has one, checked
+   against the SHA-256 GitHub's API gives for it. GitHub's API answers 60 questions an hour without an account; when
+   a shared network (a school, an office) has used them up, Lotus reads GitHub's release pages instead – those give
+   no SHA-256, and Lotus says so.
 2. **Built here, when no release has one** – the source comes with git, and Unity 2019.4.41f2 (the version the
    project is made with) builds the Mac app in the background while the lotus blooms: the assets it imports, the
    scripts it compiles, the player it builds. Unity Hub installs that Unity for you – Lotus offers Unity Hub from

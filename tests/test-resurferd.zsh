@@ -68,6 +68,20 @@ check_has "a file that is not what GitHub promised: refused" "$(lotus surf updat
 info; check_eq "  the game before it stays" "$REPLY" "FROM=release VERSION=build-56"
 check "  and nothing half is left" eval '[[ ! -e $D/download.zip.part && ! -e $D/.unpack ]]'
 
+# ── GitHub's API says no (60 questions an hour without an account): its release pages instead ──
+W=$R/web/cyberillcbutsmarter/subway-surfers-resurferd/releases
+zf_mkdir -p $W/expanded_assets $W/download/build-59
+print -r -- '<feed><entry><link rel="alternate" type="text/html" href="https://github.com/cyberillcbutsmarter/subway-surfers-resurferd/releases/tag/build-60"/></entry>
+<entry><link rel="alternate" type="text/html" href="https://github.com/cyberillcbutsmarter/subway-surfers-resurferd/releases/tag/build-59"/></entry></feed>' >| $W.atom
+print -r -- '<a href="/cyberillcbutsmarter/subway-surfers-resurferd/releases/download/build-60/Subway-Surfers-Resurferd-StandaloneWindows64.zip">' >| $W/expanded_assets/build-60
+print -r -- '<a href="/cyberillcbutsmarter/subway-surfers-resurferd/releases/download/build-59/Subway-Surfers-Resurferd-StandaloneOSX.zip" rel="nofollow">' >| $W/expanded_assets/build-59
+cp $R/mac.zip $W/download/build-59/Subway-Surfers-Resurferd-StandaloneOSX.zip
+print -r -- $'RELEASES=file://'$R$'/no-api.json\nWEB=file://'$R/web >| $D/settings
+check_has "the API says no: the release pages" "$(lotus surf update 2>&1 | plain)" "Ready: Subway Surfers Resurferd, build-59"
+info; check_eq "  the newest release with a Mac build" "$REPLY" "FROM=release VERSION=build-59"
+rm -rf -- $R/web
+check_has "neither: said so" "$(lotus surf update 2>&1 | plain)" "GitHub could not be asked for the releases"
+
 # ── your own Mac build: an app out of quarantine ──
 cp -R $R/build/StandaloneOSX.app "$HOME/My Build.app"
 [[ $OSTYPE == darwin* ]] && xattr -w com.apple.quarantine "0081;00000000;Safari;" "$HOME/My Build.app"

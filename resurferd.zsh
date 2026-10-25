@@ -19,7 +19,8 @@
 #   build.log                       what Unity said in the last build
 #   settings                        yours, KEY=value: REPO=owner/name (a fork), GET=auto|release|build (how the
 #                                   game comes the first time), UNITY=<Unity.app> (one Unity Hub does not know),
-#                                   GIT=<git URL> and RELEASES=<GitHub API link> (the source and releases from elsewhere)
+#                                   GIT=<git URL>, RELEASES=<GitHub API link> and WEB=<GitHub> (the source and the
+#                                   releases from elsewhere – WEB's release pages when the API says no)
 source $LOTUS_ROOT/lib/core.zsh && source $LOTUS_ROOT/lib/ui.zsh && lotus_load || exit 1
 setopt extendedglob
 zmodload -F zsh/stat b:zstat 2>/dev/null
@@ -48,6 +49,8 @@ typeset -g REPO=${cfg[REPO]:-cyberillcbutsmarter/subway-surfers-resurferd}
 typeset -g GIT=${cfg[GIT]:-https://github.com/$REPO.git}
 [[ $GIT == -* ]] && GIT=https://github.com/$REPO.git
 typeset -g RELEASES=${cfg[RELEASES]:-https://api.github.com/repos/$REPO/releases?per_page=30}
+typeset -g WEB=${cfg[WEB]:-https://github.com}
+[[ $WEB == (https|file)://* ]] || WEB=https://github.com
 typeset -g GET=${cfg[GET]:-auto} UVER= UCS=
 [[ $GET == (auto|release|build) ]] || GET=auto
 
@@ -142,18 +145,54 @@ _rs_unpack() {   # <zip> <folder>
 _rs_release() {
   typeset -ga REL=()
   local json line
-  json=$(curl -fsSL -m 20 -H 'Accept: application/vnd.github+json' -- "$RELEASES" 2>/dev/null) || return 2
-  line=$(print -r -- $json | lotus_jq -r '
-    [ .[]? | select(.draft | not) | .tag_name as $t | .assets[]?
-      | select((.name | test("\\.zip$"; "i")) and (.name | test("osx|macos|[^a-z]mac[^a-z]"; "i")))
-      | [$t, .browser_download_url, (.size | tostring), (.digest // ""), .name] | join("\t") ]
-    | first // empty') || return 2
-  [[ -n $line ]] || return 1
-  REL=("${(@ps:\t:)line}")
-  # only from where the releases are: GitHub over https (a file:// list may point to files)
-  [[ $REL[2] == https://* || ( $RELEASES == file://* && $REL[2] == file://* ) ]] || return 1
+  if json=$(curl -fsSL -m 20 -H 'Accept: application/vnd.github+json' -- "$RELEASES" 2>/dev/null); then
+    line=$(print -r -- $json | lotus_jq -r '
+      [ .[]? | select(.draft | not) | .tag_name as $t | .assets[]?
+        | select((.name | test("\\.zip$"; "i")) and (.name | test("osx|macos|[^a-z]mac[^a-z]"; "i")))
+        | [$t, .browser_download_url, (.size | tostring), (.digest // ""), .name] | join("\t") ]
+      | first // empty') || return 2
+    [[ -n $line ]] || return 1
+    REL=("${(@ps:\t:)line}")
+  else
+    _rs_release_web || return
+  fi
+  # only from where the releases are: GitHub over https (file:// lists, for tests, may point to files)
+  [[ $REL[2] == https://* || ( $REL[2] == file://* && ( $RELEASES == file://* || $WEB == file://* ) ) ]] || return 1
   [[ $REL[3] == <-> ]] || REL[3]=0
   return 0
+}
+
+# The same from GitHub's own pages, when its API says no – it answers 60 questions an hour without an account, and
+# a shared network (a school, an office) runs out. The release feed has the newest 10 tags, the release pages after
+# it 10 more each, each release's list of files the Mac build; there is no SHA-256 there, so that download is not
+# checked. → REL, status as _rs_release
+_rs_release_web() {
+  local page href tag line url
+  local -a tags=() hrefs=()
+  local -i before
+  for url in "$WEB/$REPO/releases.atom" "$WEB/$REPO/releases?page=2" "$WEB/$REPO/releases?page=3"; do
+    page=$(curl -fsSL -m 20 -- "$url" 2>/dev/null) || break
+    before=${#tags}
+    for line in ${(f)"$(print -r -- $page | grep -oE 'href="[^"]*/releases/tag/[^"#?]+"')"}; do
+      tag=${${line%\"}##*/releases/tag/}
+      (( ${tags[(Ie)$tag]} )) || tags+=($tag)
+    done
+    (( ${#tags} > before )) || break
+  done
+  (( ${#tags} )) || return 2
+  for tag in $tags; do
+    page=$(curl -fsSL -m 20 -- "$WEB/$REPO/releases/expanded_assets/$tag" 2>/dev/null) || continue
+    hrefs=(${(f)"$(print -r -- $page | grep -oE 'href="[^"]*/releases/download/[^"]+\.zip"')"})
+    for href in $hrefs; do
+      href=${${href#href=\"}%\"}
+      [[ ${href:t} == (#i)*(osx|macos|[^a-z]mac[^a-z])*.zip ]] || continue
+      [[ $href == /* ]] && href=$WEB$href
+      local -i size=$(curl -fsIL -m 15 -- $href 2>/dev/null | awk 'tolower($1) == "content-length:" { n = $2 } END { print n + 0 }')
+      REL=($tag $href $size "" ${href:t})
+      return 0
+    done
+  done
+  return 1
 }
 
 # The Mac build of the release in REL, while the lotus blooms: downloaded (real bytes), checked against the SHA-256
@@ -210,6 +249,7 @@ _rs_download() {
     lotus_log INFO resurferd "Mac build of $tag installed"
     bg_ui_complete; bg_ui_end
     ui_success "Ready: $NAME, $tag"
+    [[ -n $digest ]] || ui_dim "  GitHub gave no SHA-256 for it, so it could not be checked."
     return 0
   fi
   bg_ui_end
