@@ -4,6 +4,7 @@
 // cloth that swings, trails when the runner runs and flutters – and is chosen in the mod's menu (F1).
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 namespace Resurf
@@ -261,30 +262,32 @@ namespace Resurf
     public class Cape
     {
         // the menu sets these (and the settings file keeps them): CAPE, CAPE_SIZE, CAPE_HEIGHT, CAPE_FLIP
+        //   CAPE = off | inferno | galaxy | file:<name of a picture in the capes folder>
         public string Design = "off";
         public float Size = 1f, Height = 0f;
         public bool Flip;
         public string Status = "";
+        public Tracker Who;                 // the character to follow
+        public SkinModel Skin;              // a skin in the game: the cape hangs from its neck then
+        public string Dir = "";             // the folder of the pictures: <the mod's folder>/capes
 
         const int Cols = 7, Rows = 12;
         static readonly string[] Shaders = { "Sprites/Default", "Unlit/Transparent", "Mobile/Particles/Alpha Blended", "Particles/Alpha Blended", "Unlit/Texture", "Mobile/Diffuse" };
 
         readonly Dictionary<string, Texture2D[]> art = new Dictionary<string, Texture2D[]>();
+        readonly Dictionary<string, long> artTime = new Dictionary<string, long>();
         readonly ClothSim sim = new ClothSim(Cols, Rows);
-        GameObject go, ownAnchor;
+        GameObject go;
         Mesh mesh;
         Material mat;
         MeshRenderer rend;
         Vector3[] verts;
-        Transform anchor, charRoot, charKey, pinKey;
-        float charH = 1.8f, lift, nextFind, lastSize, simTime;
+        Transform lastBone;
+        float lastSize, simTime;
         Vector3 lastA, vel;
         bool placed;
-        // which character: watch is one of its skinned meshes (is it on screen?), pin the name chosen by hand
-        Renderer watch;
-        string attached = "";
-        float nextCheck;
-        int unseen;
+
+        public GameObject Object { get { return go; } }
 
         public Texture2D Preview(string design)
         {
@@ -292,80 +295,116 @@ namespace Resurf
             return frames == null ? null : frames[0];
         }
 
+        // the pictures a player put into the capes folder (png, jpg), as designs
+        public List<string> Files()
+        {
+            var l = new List<string>();
+            try
+            {
+                if (!string.IsNullOrEmpty(Dir) && Directory.Exists(Dir))
+                    foreach (var f in Directory.GetFiles(Dir))
+                    {
+                        var e = Path.GetExtension(f).ToLowerInvariant();
+                        if (e == ".png" || e == ".jpg" || e == ".jpeg") l.Add("file:" + Path.GetFileName(f));
+                    }
+            }
+            catch (Exception) { }
+            l.Sort(StringComparer.OrdinalIgnoreCase);
+            return l;
+        }
+
+        // a changed or new file is read again
+        public void Rescan() { foreach (var k in new List<string>(art.Keys)) if (k.StartsWith("file:", StringComparison.Ordinal)) art.Remove(k); }
+
         Texture2D[] Frames(string design)
         {
             Texture2D[] f;
-            if (art.TryGetValue(design, out f)) return f;
+            if (design.StartsWith("file:", StringComparison.Ordinal))
+            {
+                try
+                {
+                    long stamp = File.GetLastWriteTimeUtc(Path.Combine(Dir, design.Substring(5))).Ticks;
+                    long was;
+                    if (art.TryGetValue(design, out f) && artTime.TryGetValue(design, out was) && was == stamp) return f;
+                    artTime[design] = stamp;
+                }
+                catch (Exception) { }
+            }
+            else if (art.TryGetValue(design, out f)) return f;
             try
             {
-                f = design == "inferno" ? CapeArt.Inferno(6) : design == "galaxy" ? CapeArt.Galaxy(6) : null;
+                if (design == "inferno") f = CapeArt.Inferno(6);
+                else if (design == "galaxy") f = CapeArt.Galaxy(6);
+                else if (design.StartsWith("file:", StringComparison.Ordinal)) f = LoadFile(Path.Combine(Dir, design.Substring(5)));
+                else f = null;
             }
             catch (Exception e) { Debug.Log("[Resurf] cape: the design " + design + " could not be made: " + e.Message); f = null; }
             art[design] = f;
             return f;
         }
 
-        // back to choosing by itself
-        public void Forget() { anchor = null; placed = false; nextFind = 0f; pinKey = null; }
-
-        // the next character that has a skinned model in the game, chosen by hand (the menu)
-        public void Next()
+        // a picture of the player's: Unity's own reader when this build has it (png, jpg), else the mod's PNG reader
+        static Texture2D[] LoadFile(string path)
         {
-            var list = Candidates();
-            if (list.Count == 0) { Status = "no character found"; return; }
-            int at = -1;
-            for (int k = 0; k < list.Count; k++) if (charKey != null && list[k].Key == charKey) at = k;
-            var c = list[(at + 1) % list.Count];
-            pinKey = c.Key;
-            Attach(c, (at + 1) % list.Count, list.Count);
+            var bytes = File.ReadAllBytes(path);
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+            bool ok = false;
+            try
+            {
+                var t = Type.GetType("UnityEngine.ImageConversion, UnityEngine.ImageConversionModule");
+                var m = t == null ? null : t.GetMethod("LoadImage", new[] { typeof(Texture2D), typeof(byte[]) });
+                if (m != null) ok = (bool)m.Invoke(null, new object[] { tex, bytes });
+            }
+            catch (Exception) { ok = false; }
+            if (!ok)
+            {
+                var img = Png.Decode(bytes);
+                if (img == null) { UnityEngine.Object.Destroy(tex); throw new FormatException("not a picture this build can read (a PNG works everywhere)"); }
+                img = Png.Shrink(img, 2048);
+                tex.Resize(img.W, img.H);
+                tex.LoadRawTextureData(img.Rgba);
+                tex.Apply(true);
+            }
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            return new[] { tex };
         }
 
         public void Dispose()
         {
             if (go != null) UnityEngine.Object.Destroy(go);
-            if (ownAnchor != null) UnityEngine.Object.Destroy(ownAnchor);
         }
 
         // once per frame, after the animations: LateUpdate
         public void Tick()
         {
             if (Design == "off" || Frames(Design) == null) { if (go != null && go.activeSelf) go.SetActive(false); Status = Design == "off" ? "" : "this design could not be made"; return; }
-            float now = Time.realtimeSinceStartup;
-            if (anchor == null || !anchor.gameObject.activeInHierarchy)
-            {
-                placed = false;
-                if (go != null && go.activeSelf) go.SetActive(false);
-                if (now < nextFind) return;
-                nextFind = now + 1.5f;
-                if (!Find()) { Status = "no character found – it comes when one is in the game"; return; }
-                nextCheck = now + 1f;
-            }
-            // a character that is not on screen (the menu's, still in the scene) – look for the one that is
-            if (pinKey == null && now >= nextCheck)
-            {
-                nextCheck = now + 1f;
-                if (watch == null || !watch.isVisible) { if (++unseen >= 2) { unseen = 0; Find(); } }
-                else unseen = 0;
-            }
+            // from what does it hang: the skin's neck, or the game's own character
+            Transform bone; float lift, height; Transform face;
+            if (Skin != null && Skin.CapeBone != null) { bone = Skin.CapeBone; lift = 0f; height = Skin.ModelHeight; face = Skin.Root; Status = "on the skin's neck"; }
+            else if (Who != null && Who.Has) { bone = Who.Bone; lift = Who.BoneLift; height = Who.Height; face = Who.Root; Status = Who.Status; }
+            else { if (go != null && go.activeSelf) go.SetActive(false); Status = Who != null ? Who.Status : ""; return; }
             if (go == null && !Build()) return;
             if (!go.activeSelf) go.SetActive(true);
-            go.layer = watch != null ? watch.gameObject.layer : charRoot != null ? charRoot.gameObject.layer : 0;
+            if (bone != lastBone) { lastBone = bone; placed = false; }
+            go.layer = bone.gameObject.layer;
 
+            float now = Time.realtimeSinceStartup;
             var frames = Frames(Design);
             mat.mainTexture = frames[(int)(now * (Design == "inferno" ? 12f : 5f)) % frames.Length];
 
-            float scale = charH / 1.8f;
+            float scale = height / 1.8f;
             float size = Mathf.Clamp(Size, 0.5f, 5f);
-            if (!placed || size != lastSize) { sim.Setup(0.42f * charH * size, 0.75f * charH * size); lastSize = size; }
+            if (!placed || size != lastSize) { sim.Setup(0.42f * height * size, 0.75f * height * size); lastSize = size; }
 
-            var f = charRoot != null ? charRoot.forward : Vector3.forward;
+            var f = face != null ? face.forward : Vector3.forward;
             f.y = 0f;
             if (f.sqrMagnitude < 1e-4f) f = Vector3.forward;
             var back = -f.normalized;
             if (Flip) back = -back;
             var right = Vector3.Cross(back, Vector3.up);
-            float backOff = (lift > 0.01f ? 0.08f : 0.05f) * charH;
-            var a = anchor.position + Vector3.up * ((lift + Mathf.Clamp(Height, -1f, 1f) * 0.3f) * charH);
+            float backOff = (lift > 0.01f ? 0.08f : 0.05f) * height;
+            var a = bone.position + Vector3.up * ((lift + Mathf.Clamp(Height, -1f, 1f) * 0.3f) * height);
 
             float dt = Mathf.Min(Time.deltaTime, 0.1f);
             if (!placed || (a - lastA).magnitude > 5f * Mathf.Max(1f, scale))
@@ -386,7 +425,6 @@ namespace Resurf
             }
             lastA = a;
             Draw();
-            Status = attached;
         }
 
         void Draw()
@@ -413,6 +451,7 @@ namespace Resurf
             go = new GameObject("ResurfCape");
             go.hideFlags = HideFlags.HideInHierarchy;
             UnityEngine.Object.DontDestroyOnLoad(go);
+            if (Who != null) Who.Ignore.Add(go.transform);
             mat = new Material(sh);
             mat.name = "Resurf cape";
             mesh = new Mesh();
@@ -442,154 +481,6 @@ namespace Resurf
             rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             rend.receiveShadows = false;
             return true;
-        }
-
-        // ── the character ──
-
-        // the neck and the chest hold a cape best; the lift brings a lower bone up to the shoulders (in character heights)
-        static int BoneScore(string name, out float lift)
-        {
-            lift = 0f;
-            var n = name.ToLowerInvariant();
-            if (n.IndexOf("neck", StringComparison.Ordinal) < 0 && n.IndexOf("chest", StringComparison.Ordinal) < 0 && n.IndexOf("spine", StringComparison.Ordinal) < 0) return 0;
-            foreach (var bad in new[] { "twist", "nub", "end", "helper", "target", "pole", "hair", "tail" }) if (n.IndexOf(bad, StringComparison.Ordinal) >= 0) return 0;
-            if (n.IndexOf("neck", StringComparison.Ordinal) >= 0) return 4;
-            if (n.IndexOf("chest", StringComparison.Ordinal) >= 0 || n.EndsWith("spine2", StringComparison.Ordinal) || n.EndsWith("spine_02", StringComparison.Ordinal) || n.EndsWith("spine3", StringComparison.Ordinal) || n.EndsWith("spine_03", StringComparison.Ordinal)) { lift = 0.1f; return 3; }
-            if (n.EndsWith("spine1", StringComparison.Ordinal) || n.EndsWith("spine_01", StringComparison.Ordinal)) { lift = 0.14f; return 2; }
-            // the game's own skeleton: jLowerSpine, jUpperSpine … – the upper one is at the shoulders, the lower one at the hips
-            if (n.IndexOf("upper", StringComparison.Ordinal) >= 0 && n.IndexOf("spine", StringComparison.Ordinal) >= 0) { lift = 0.08f; return 3; }
-            if (n.IndexOf("lower", StringComparison.Ordinal) >= 0 && n.IndexOf("spine", StringComparison.Ordinal) >= 0) { lift = 0.3f; return 1; }
-            if (n.IndexOf("spine", StringComparison.Ordinal) >= 0) { lift = 0.22f; return 1; }
-            return 0;
-        }
-
-        static bool IsSkinned(Renderer r) { return r != null && r.GetType().Name == "SkinnedMeshRenderer"; }
-
-        // the skeleton's root bone of a skinned mesh (SkinnedMeshRenderer.rootBone, through reflection: no module needed)
-        static Transform RootBone(Renderer r)
-        {
-            try
-            {
-                var p = r.GetType().GetProperty("rootBone");
-                return p == null ? null : p.GetValue(r, null) as Transform;
-            }
-            catch (Exception) { return null; }
-        }
-
-        // a character the game has: its model (the parent of the skinned mesh – the skeleton hangs there too)
-        sealed class Cand
-        {
-            public Transform Root;      // the parent of the skinned mesh – gives the direction the character faces
-            public Transform Key;       // the skeleton's root bone: one per character, even when many share a folder (avatars)
-            public Renderer Skin;
-            public Bounds Bounds;       // of all the skinned meshes of this character
-            public bool Visible, Tagged, Foe;
-            public float Dist;
-        }
-
-        // everything with a skinned model: the one tagged Player first, then what is on screen and not a chaser,
-        // then the nearest to the camera
-        List<Cand> Candidates()
-        {
-            var cam = Camera.main;
-            var camPos = cam != null ? cam.transform.position : Vector3.zero;
-            GameObject player = null;
-            try { player = GameObject.FindWithTag("Player"); } catch (Exception) { }     // a tag the project does not have throws
-            var byRoot = new Dictionary<Transform, Cand>();
-            var list = new List<Cand>();
-            foreach (var r in UnityEngine.Object.FindObjectsOfType<Renderer>())
-            {
-                if (!IsSkinned(r) || !r.enabled || !r.gameObject.activeInHierarchy) continue;
-                if (go != null && r.transform.IsChildOf(go.transform)) continue;
-                var root = r.transform.parent != null ? r.transform.parent : r.transform;
-                var key = RootBone(r);
-                if (key == null) key = root;
-                Cand c;
-                if (byRoot.TryGetValue(key, out c)) { c.Bounds.Encapsulate(r.bounds); if (r.isVisible && !c.Visible) { c.Visible = true; c.Skin = r; } continue; }
-                c = new Cand { Root = root, Key = key, Skin = r, Bounds = r.bounds, Visible = r.isVisible, Dist = (r.bounds.center - camPos).sqrMagnitude };
-                c.Tagged = player != null && (r.transform.IsChildOf(player.transform) || player.transform.IsChildOf(root));
-                var n = root.name.ToLowerInvariant() + " " + r.name.ToLowerInvariant();
-                foreach (var foe in new[] { "police", "guard", "inspector", "dog", "chaser", "enemy", "cop", "npc" }) if (n.IndexOf(foe, StringComparison.Ordinal) >= 0) c.Foe = true;
-                byRoot[key] = c;
-                list.Add(c);
-            }
-            list.Sort((x, y) =>
-            {
-                if (x.Tagged != y.Tagged) return x.Tagged ? -1 : 1;
-                if (x.Foe != y.Foe) return x.Foe ? 1 : -1;
-                if (x.Visible != y.Visible) return x.Visible ? -1 : 1;
-                return x.Dist.CompareTo(y.Dist);
-            });
-            return list;
-        }
-
-        // how tall the character is: its meshes' bounds, and the span of its skeleton from the lowest bone to the
-        // highest (a little more: the head goes over its bone) – the bigger one, since the bounds can be too small
-        static float HeightOf(Cand c, out float fromBounds, out float fromBones)
-        {
-            fromBounds = c.Bounds.size.y;
-            fromBones = 0f;
-            var scope = c.Key != null && c.Key != c.Root ? c.Key : c.Root;
-            float lo = float.MaxValue, hi = float.MinValue;
-            foreach (var t in scope.GetComponentsInChildren<Transform>(true))
-            {
-                float y = t.position.y;
-                if (y < lo) lo = y;
-                if (y > hi) hi = y;
-            }
-            if (hi > lo) fromBones = (hi - lo) * 1.15f;
-            float h = Mathf.Max(fromBounds < 60f ? fromBounds : 0f, fromBones < 60f ? fromBones : 0f);
-            return h < 0.05f ? 1.8f : h;
-        }
-
-        // the best bone for a cape in the character's own skeleton (not in the folder with all the others)
-        static Transform BestBone(Cand c, out float lift)
-        {
-            lift = 0f;
-            Transform best = null;
-            int bestScore = 0;
-            var scope = c.Key != null && c.Key != c.Root ? c.Key : c.Root;
-            foreach (var t in scope.GetComponentsInChildren<Transform>(true))
-            {
-                float l;
-                int sc = BoneScore(t.name, out l);
-                if (sc > bestScore) { best = t; bestScore = sc; lift = l; }
-            }
-            return best;
-        }
-
-        bool Find()
-        {
-            var list = Candidates();
-            if (list.Count == 0) return false;
-            int pick = 0;
-            if (pinKey != null)
-                for (int k = 0; k < list.Count; k++) if (list[k].Key == pinKey) { pick = k; break; }
-            if (anchor != null && anchor.gameObject.activeInHierarchy && list[pick].Key == charKey) { watch = list[pick].Skin; return true; }
-            Attach(list[pick], pick, list.Count);
-            return true;
-        }
-
-        void Attach(Cand c, int index, int count)
-        {
-            float l;
-            var bone = BestBone(c, out l);
-            string what;
-            if (bone != null) what = "on " + bone.name;
-            else
-            {
-                // no bone with a name we know: the cape on the model's back
-                var b = c.Skin.bounds;
-                if (ownAnchor == null) { ownAnchor = new GameObject("ResurfCapeAnchor"); ownAnchor.hideFlags = HideFlags.HideInHierarchy; }
-                ownAnchor.transform.SetParent(c.Skin.transform, true);
-                ownAnchor.transform.position = new Vector3(b.center.x, b.max.y - 0.2f * b.size.y, b.center.z);
-                bone = ownAnchor.transform; l = 0f; what = "on the model's back (no known bone)";
-            }
-            anchor = bone; charRoot = c.Root; charKey = c.Key; watch = c.Skin; lift = l; float hb, hk; charH = HeightOf(c, out hb, out hk); placed = false;
-            attached = "Character " + (index + 1) + " of " + count + ": " + c.Skin.name + " – " + what + (c.Visible ? "" : " (not on screen)")
-                + ". Height " + charH.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
-                + " (meshes " + hb.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ", bones " + hk.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ")";
-            Debug.Log("[Resurf] cape: " + attached);
         }
     }
 }

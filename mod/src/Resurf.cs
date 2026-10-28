@@ -4,7 +4,9 @@
 // <persistentDataPath>/resurf:
 //   inbox/<id>.req   from Lotus: "coins +5000" or "coins =5000" – done, then deleted
 //   settings         from Lotus, the F key and the menu: FPS=on|off, GLOW=fix|original, SPEED=<0.25–3>, AUTOSAVE=<seconds, 0 = off>,
-//                    CAPE=off|inferno|galaxy, CAPE_SIZE=<0.5–5>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off
+//                    CAPE=off|inferno|galaxy|file:<picture>, CAPE_SIZE=<0.5–5>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off,
+//                    SKIN=off|<file.glb>, SKIN_SIZE=<0.3–3>, SKIN_HEIGHT=<-1–1>, SKIN_FLIP=on|off
+//   capes/           your pictures for the cape (png, jpg)      skins/   your .glb models      skin.txt  how the last skin was matched
 //   save.txt         to Lotus: coins, high score, best distance … and LAST=<id of the newest request done>
 // What it does:
 //   - the coins' glow (and the mystery box's): drawn additively, as a glow is – the project draws it with a
@@ -13,7 +15,8 @@
 //     quits – the game itself saves only after a run's coins are counted and when a phone sends it away
 //   - an FPS counter, bottom left (F switches it on and off)
 //   - a menu (M or F1) to change all of that in the game: FPS counter, glow, game speed, how often it saves, coins
-//   - a cape for the runner (Cape.cs): two designs, Inferno and Galaxy, chosen in the menu
+//   - a cape for the runner (Cape.cs): two designs, Inferno and Galaxy, and pictures of your own (the capes folder)
+//   - skins (Skin.cs): another 3D model for the runner – a .glb in the skins folder, chosen in the menu
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -49,7 +52,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "1.6";
+        public const string Version = "2.0";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -145,8 +148,13 @@ namespace Resurf
 
         // the menu (M or F1)
         static readonly int[] AutosaveChoices = { 0, 10, 20, 60 };
-        bool menu, speedDirty, capeDirty;
+        bool menu, speedDirty, capeDirty, skinDirty;
+        readonly Tracker tracker = new Tracker();
         readonly Cape cape = new Cape();
+        readonly SkinModel skin = new SkinModel();
+        string capesDir, skinsDir;
+        List<string> capeFiles = new List<string>(), skinFiles = new List<string>();
+        Vector2 menuScroll;
         float speed = 1f, speedApplied = 1f;
         int autosave = 20;
         GUIStyle menuTitle, menuNote;
@@ -163,7 +171,11 @@ namespace Resurf
             inbox = Path.Combine(dir, "inbox");
             settingsFile = Path.Combine(dir, "settings");
             saveFile = Path.Combine(dir, "save.txt");
-            try { Directory.CreateDirectory(inbox); } catch (Exception e) { Log("no folder " + dir + ": " + e.Message); }
+            capesDir = Path.Combine(dir, "capes");
+            skinsDir = Path.Combine(dir, "skins");
+            try { Directory.CreateDirectory(inbox); Directory.CreateDirectory(capesDir); Directory.CreateDirectory(skinsDir); } catch (Exception e) { Log("no folder " + dir + ": " + e.Message); }
+            cape.Dir = capesDir; cape.Who = tracker; cape.Skin = skin;
+            skin.Dir = skinsDir; skin.ReportFile = Path.Combine(dir, "skin.txt");
             ReadSettings(true);
             Log("mod " + Boot.Version + " loaded – " + dir + (Player.There ? "" : " (the game's PlayerInfo is missing)"));
             if (Player.There) Log("coins " + Player.Coins + " (from the game's save)");
@@ -173,16 +185,21 @@ namespace Resurf
             WriteSave("start");
         }
 
-        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); }
+        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); skin.Dispose(); tracker.Dispose(); }
 
-        // after the animations of the frame: the cape follows the runner
+        // after the animations of the frame: the skin takes the game's pose, the cape follows the runner
         void LateUpdate()
         {
+            bool skinOn = !string.IsNullOrEmpty(skin.Want) && skin.Want != "off";
+            try { tracker.Tick(cape.Design != "off" || skinOn); }
+            catch (Exception e) { Log("character: " + e.Message); }
+            try { skin.Tick(tracker); }
+            catch (Exception e) { Log("skin: " + e.Message + " – the skin is off"); skin.Status = e.Message; skin.Want = "off"; }
             try { cape.Tick(); }
             catch (Exception e) { Log("cape: " + e.Message + " – the cape is off"); cape.Design = "off"; }
         }
 
-        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; cape.Forget(); }
+        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; tracker.Forget(); }
 
         void Update()
         {
@@ -190,7 +207,7 @@ namespace Resurf
             frames++;
             if (now - fpsTime >= 0.5f) { fpsShown = frames / (now - fpsTime); frames = 0; fpsTime = now; }
             if (Input.GetKeyDown(KeyCode.F)) { fps = !fps; WriteSettings(); }
-            if (Input.GetKeyDown(KeyCode.M) || Input.GetKeyDown(KeyCode.F1)) menu = !menu;
+            if (Input.GetKeyDown(KeyCode.M) || Input.GetKeyDown(KeyCode.F1)) { menu = !menu; if (menu) Rescan(); }
             else if (menu && Input.GetKeyDown(KeyCode.Escape)) menu = false;
             ApplySpeed();
             if (now >= nextInbox) { nextInbox = now + 0.5f; DoInbox(); }
@@ -344,7 +361,13 @@ namespace Resurf
                     int n;
                     if (line.StartsWith("SPEED=") && float.TryParse(line.Substring(6), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
                         speed = Mathf.Clamp(f, 0.25f, 3f);
-                    if (line.StartsWith("CAPE=")) { var d = line.Substring(5).Trim(); cape.Design = Array.IndexOf(CapeArt.Designs, d) >= 0 ? d : "off"; }
+                    if (line.StartsWith("CAPE=")) { var d = line.Substring(5).Trim(); cape.Design = Array.IndexOf(CapeArt.Designs, d) >= 0 || d.StartsWith("file:", StringComparison.Ordinal) && d.Length > 5 ? d : "off"; }
+                    if (line.StartsWith("SKIN=")) { var d = line.Substring(5).Trim(); skin.Want = d.Length == 0 ? "off" : d; }
+                    if (line.StartsWith("SKIN_SIZE=") && float.TryParse(line.Substring(10), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        skin.Size = Mathf.Clamp(f, 0.3f, 3f);
+                    if (line.StartsWith("SKIN_HEIGHT=") && float.TryParse(line.Substring(12), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        skin.Height = Mathf.Clamp(f, -1f, 1f);
+                    if (line.StartsWith("SKIN_FLIP=")) skin.Flip = line.Substring(10).Trim() == "on";
                     if (line.StartsWith("CAPE_SIZE=") && float.TryParse(line.Substring(10), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
                         cape.Size = Mathf.Clamp(f, 0.5f, 5f);
                     if (line.StartsWith("CAPE_HEIGHT=") && float.TryParse(line.Substring(12), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
@@ -367,7 +390,7 @@ namespace Resurf
         }
 
         // the settings the mod and the menu own – the other lines of the file (Lotus's own) stay as they are
-        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=" };
+        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=", "SKIN=", "SKIN_SIZE=", "SKIN_HEIGHT=", "SKIN_FLIP=" };
 
         void WriteSettings()
         {
@@ -389,6 +412,10 @@ namespace Resurf
                 lines.Add("CAPE_SIZE=" + cape.Size.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("CAPE_HEIGHT=" + cape.Height.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("CAPE_FLIP=" + (cape.Flip ? "on" : "off"));
+                lines.Add("SKIN=" + (string.IsNullOrEmpty(skin.Want) ? "off" : skin.Want));
+                lines.Add("SKIN_SIZE=" + skin.Size.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("SKIN_HEIGHT=" + skin.Height.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("SKIN_FLIP=" + (skin.Flip ? "on" : "off"));
                 File.WriteAllText(settingsFile, string.Join("\n", lines.ToArray()) + "\n");
                 settingsTime = File.GetLastWriteTimeUtc(settingsFile);
             }
@@ -408,6 +435,20 @@ namespace Resurf
 
         static string Num(int n) { return n.ToString("N0", CultureInfo.InvariantCulture); }
 
+        void Rescan()
+        {
+            cape.Rescan();
+            capeFiles = cape.Files();
+            skinFiles = skin.Files();
+        }
+
+        // a folder of the mod, shown in the Finder
+        void OpenFolder(string path)
+        {
+            try { Directory.CreateDirectory(path); Application.OpenURL("file://" + path); }
+            catch (Exception e) { Log("could not open " + path + ": " + e.Message); }
+        }
+
         void DrawMenu()
         {
             if (menuTitle == null)
@@ -420,7 +461,7 @@ namespace Resurf
             float scale = Screen.height / 720f;
             var old = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
-            float w = 360f, h = 700f;
+            float w = 390f, h = 700f;
             var area = new Rect(20f, 10f, w, h);
             var back = GUI.color;
             GUI.color = new Color(0f, 0f, 0f, 0.82f);
@@ -428,6 +469,7 @@ namespace Resurf
             GUI.color = back;
             GUILayout.BeginArea(new Rect(area.x + 14f, area.y + 10f, w - 28f, h - 20f));
             GUILayout.Label("Resurf mod " + Boot.Version, menuTitle);
+            menuScroll = GUILayout.BeginScrollView(menuScroll);
 
             bool newFps = GUILayout.Toggle(fps, " FPS counter  (F)");
             if (newFps != fps) { fps = newFps; WriteSettings(); }
@@ -435,6 +477,7 @@ namespace Resurf
             bool newGlow = GUILayout.Toggle(fixGlow, " Coins' glow without the black edge");
             if (newGlow != fixGlow) SetGlow(newGlow);
 
+            DrawSkinMenu();
             DrawCapeMenu();
 
             GUILayout.Space(8f);
@@ -468,10 +511,41 @@ namespace Resurf
                 GUILayout.EndHorizontal();
             }
 
-            GUILayout.FlexibleSpace();
+            GUILayout.Space(10f);
             GUILayout.Label("M or F1 closes the menu. A click here can reach the game too – use it while the game is paused or on the start screen.", menuNote);
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
             GUI.matrix = old;
+        }
+
+        // the skin: the game's own model, or a .glb from the skins folder – how big, how high, which way round
+        void DrawSkinMenu()
+        {
+            GUILayout.Space(8f);
+            GUILayout.Label("Skin (3D model)", menuTitle);
+            var names = new List<string> { "Original" };
+            names.AddRange(skinFiles);
+            int sel = skin.Want == "off" || string.IsNullOrEmpty(skin.Want) ? 0 : Mathf.Max(0, skinFiles.IndexOf(skin.Want) + 1);
+            int pick = GUILayout.SelectionGrid(sel, names.ToArray(), 1);
+            if (pick != sel) { skin.Want = pick == 0 ? "off" : skinFiles[pick - 1]; WriteSettings(); }
+            if (skinFiles.Count == 0) GUILayout.Label("No skin yet. Put a .glb model of a person (with a skeleton) into the skins folder, or: lotus surf skin add <file.glb>", menuNote);
+            if (skin.Want != "off" && !string.IsNullOrEmpty(skin.Want))
+            {
+                GUILayout.Label("Size: " + skin.Size.ToString("0.00", CultureInfo.InvariantCulture) + "x");
+                float size = Mathf.Round(GUILayout.HorizontalSlider(skin.Size, 0.3f, 3f) * 20f) / 20f;
+                if (size != skin.Size) { skin.Size = size; skinDirty = true; }
+                GUILayout.Label("Height: " + skin.Height.ToString("0.00", CultureInfo.InvariantCulture));
+                float height = Mathf.Round(GUILayout.HorizontalSlider(skin.Height, -1f, 1f) * 20f) / 20f;
+                if (height != skin.Height) { skin.Height = height; skinDirty = true; }
+                bool flip = GUILayout.Toggle(skin.Flip, " Other way round (if it runs backwards)");
+                if (flip != skin.Flip) { skin.Flip = flip; WriteSettings(); }
+                if (skin.Status.Length > 0) GUILayout.Label(skin.Status, menuNote);
+            }
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Open skins folder")) OpenFolder(skinsDir);
+            if (GUILayout.Button("Rescan")) { Rescan(); if (skin.Want != "off") skin.Reload(); }
+            GUILayout.EndHorizontal();
+            if (skinDirty && Event.current.type == EventType.MouseUp) { skinDirty = false; WriteSettings(); }
         }
 
         // the cape: the design (with a picture of it), how big, how high, which way round
@@ -479,18 +553,22 @@ namespace Resurf
         {
             GUILayout.Space(8f);
             GUILayout.Label("Cape", menuTitle);
+            var designs = new List<string>(CapeArt.Designs);
+            designs.AddRange(capeFiles);
+            var names = new List<string> { "none", "Inferno", "Galaxy" };
+            foreach (var f in capeFiles) names.Add(f.Substring(5));
+            int sel = Mathf.Max(0, designs.IndexOf(cape.Design));
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical();
-            string[] names = { "none", "Inferno", "Galaxy" };
-            int sel = Mathf.Max(0, Array.IndexOf(CapeArt.Designs, cape.Design));
-            int pick = GUILayout.SelectionGrid(sel, names, 1);
-            if (pick != sel) { cape.Design = CapeArt.Designs[pick]; WriteSettings(); }
+            int pick = GUILayout.SelectionGrid(sel, names.ToArray(), 1);
+            if (pick != sel) { cape.Design = designs[pick]; WriteSettings(); }
             GUILayout.EndVertical();
             var pic = cape.Design == "off" ? null : cape.Preview(cape.Design);
             GUILayout.FlexibleSpace();
             var slot = GUILayoutUtility.GetRect(60f, 105f);
             if (pic != null) GUI.DrawTexture(new Rect(slot.x, slot.y, 60f, 105f), pic);
             GUILayout.EndHorizontal();
+            if (capeFiles.Count == 0) GUILayout.Label("Your own cape: put a picture (png or jpg) into the capes folder, or: lotus surf cape add <picture>", menuNote);
             if (cape.Design != "off")
             {
                 GUILayout.Label("Size: " + cape.Size.ToString("0.00", CultureInfo.InvariantCulture) + "x");
@@ -501,12 +579,16 @@ namespace Resurf
                 if (height != cape.Height) { cape.Height = height; capeDirty = true; }
                 bool flip = GUILayout.Toggle(cape.Flip, " Other way round (if it hangs at the front)");
                 if (flip != cape.Flip) { cape.Flip = flip; WriteSettings(); }
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("Next character")) cape.Next();
-                if (GUILayout.Button("Look again")) cape.Forget();
-                GUILayout.EndHorizontal();
                 if (cape.Status.Length > 0) GUILayout.Label(cape.Status, menuNote);
             }
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Next character")) tracker.Next();
+            if (GUILayout.Button("Look again")) tracker.Forget();
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Open capes folder")) OpenFolder(capesDir);
+            if (GUILayout.Button("Rescan")) Rescan();
+            GUILayout.EndHorizontal();
             if (capeDirty && Event.current.type == EventType.MouseUp) { capeDirty = false; WriteSettings(); }
         }
 

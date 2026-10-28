@@ -139,6 +139,22 @@ check_has "cape: galaxy" "$(lotus surf cape galaxy 2>&1 | plain)" "The cape Gala
 check_eq "  next to the others" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original\nCAPE=galaxy'
 check_has "cape: a design it does not know" "$(lotus surf cape rainbow 2>&1 | plain)" "lotus surf cape inferno, galaxy, or off"
 check_has "cape: off" "$(lotus surf cape off 2>&1 | plain)" "No cape"
+print -r -- 'a picture' >| $HOME/mycape.png
+check_has "cape add: a picture of yours" "$(lotus surf cape add $HOME/mycape.png 2>&1 | plain)" "Your cape mycape.png is in"
+check "  it is in the capes folder" test -e $GD/resurf/capes/mycape.png
+check_has "  and the game is told" "$(<$GD/resurf/settings)" "CAPE=file:mycape.png"
+check_has "cape add: not a picture" "$(lotus surf cape add $HOME/ResurfMod.dll 2>&1 | plain)" "That is not a picture"
+check_has "cape: back to a built-in one" "$(lotus surf cape inferno 2>&1 | plain)" "The cape Inferno"
+check_has "cape: your picture by its name" "$(lotus surf cape mycape.png 2>&1 | plain)" "Your cape mycape.png"
+print -r -- 'a model' >| $HOME/runner.glb
+check_has "skin add: a model of yours" "$(lotus surf skin add $HOME/runner.glb 2>&1 | plain)" "The skin runner.glb is in"
+check "  it is in the skins folder" test -e $GD/resurf/skins/runner.glb
+check_has "  and the game is told" "$(<$GD/resurf/settings)" "SKIN=runner.glb"
+check_has "skin: the list" "$(lotus surf skin list 2>&1 | plain)" "runner.glb"
+check_has "skin add: not a model" "$(lotus surf skin add $HOME/mycape.png 2>&1 | plain)" "That is not a .glb model"
+check_has "skin: a word it does not know" "$(lotus surf skin nothing 2>&1 | plain)" "Unknown: lotus surf skin nothing"
+check_has "skin: off" "$(lotus surf skin off 2>&1 | plain)" "The game's own model"
+check_has "  off in the game's settings" "$(<$GD/resurf/settings)" "SKIN=off"
 
 print -r -- 'a newer mod' >| $HOME/ResurfMod.dll
 check_has "a newer mod: the game has it not yet" "$(lotus surf mod 2>&1 | plain)" "has it not yet"

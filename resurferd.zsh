@@ -11,7 +11,8 @@
 #   lotus surf coins [<n>|set <n>]  coins for the game (the Resurf mod hands them over) – without a number: how many
 #   lotus surf stats                coins, high score, best distance … as the game saved them
 #   lotus surf fps [on|off]         the FPS counter in the game · glow fix|original · mod on|off
-#   lotus surf cape [off|inferno|galaxy]   the runner's cape (also in the game: F1 or M, the menu)
+#   lotus surf cape [off|inferno|galaxy|<picture>|add <picture>]   the runner's cape (also in the game: F1 or M, the menu)
+#   lotus surf skin [off|<model>|add <model.glb>]                   another 3D model for the runner
 # The Resurf mod (mod/ResurfMod.dll, its source in mod/src) goes into the app with the rest of _rs_fix: the game
 # loads it at start. It fixes the coins' glow, saves the game reliably, writes a readable save, shows the FPS and
 # takes coins from Lotus – the files it shares with Lotus are in <the game's folder>/resurf (_rs_gamedata).
@@ -923,16 +924,84 @@ rs_glow() {
                   || ui_success "The glow is drawn as the project draws it – from the next start of the game"
 }
 
-# lotus surf cape [off|inferno|galaxy]: the cape of the runner – a running game takes it within a second
+# A file of yours into one of the mod's folders (capes, skins): <folder> <file> <extensions, space apart> <what> → the
+# name in REPLY, status 1 when it is not a file like that
+_rs_addfile() {
+  local dir=$1 src=${2/#\~/$HOME} exts=$3 what=$4 name ext ok=0
+  [[ -n $2 ]] || { ui_error "Which file?" "" "lotus surf ${what%% *} add <file>"; return 1 }
+  [[ -f $src ]] || { ui_error "No such file: $2" "" "Give the path of $what"; return 1 }
+  name=${src:t}
+  [[ $name != *$'\n'* && $name != .* ]] || { ui_error "Not a name the game can use: $name" "" "Rename the file"; return 1 }
+  for ext in ${=exts}; do [[ ${name:l} == *.$ext ]] && ok=1; done
+  (( ok )) || { ui_error "That is not $what: $name" "It has to end in ${exts// /, }"; return 1 }
+  mkdir -p -- $dir && cp -f -- $src $dir/$name || { ui_error "Could not copy it into $dir"; return 1 }
+  REPLY=$name
+}
+
+# lotus surf cape [off|inferno|galaxy|<your picture>|add <picture>|list]: the cape of the runner – a running game
+# shows it within a second. Pictures (png, jpg) of your own go into <the game's folder>/resurf/capes.
 rs_cape() {
   _rs_gamedata
-  _rs_kv "$REPLY/resurf/settings"
-  [[ -n $1 ]] || { ui_kv Cape "${KV[CAPE]:-off} – lotus surf cape inferno, galaxy, or off (in the game: F1 or M, the menu)"; return 0 }
-  [[ $1 == (off|inferno|galaxy) ]] || { ui_error "Unknown: lotus surf cape $1" "" "lotus surf cape inferno, galaxy, or off"; return 2 }
+  local gd=$REPLY dir="$REPLY/resurf/capes" f name
+  _rs_kv "$gd/resurf/settings"
+  if [[ -z $1 || $1 == list ]]; then
+    ui_kv Cape "${KV[CAPE]:-off} – lotus surf cape inferno, galaxy, off, or one of your pictures (lotus surf cape add <picture>)"
+    for f in $dir/*.(png|jpg|jpeg)(N:t); do ui_dim "  $f"; done
+    return 0
+  fi
+  if [[ $1 == add ]]; then
+    _rs_addfile $dir "$2" "png jpg jpeg" "a picture (png or jpg)" || return 1
+    name=$REPLY
+    _rs_mod_ready || return 1
+    _rs_mod_setting CAPE "file:$name"
+    ui_success "Your cape $name is in – a running game shows it within a second; the menu (F1) has its size and height"
+    return 0
+  fi
+  if [[ $1 != (off|inferno|galaxy) ]]; then
+    name=${1:t}
+    [[ -f $dir/$name ]] || { ui_error "Unknown: lotus surf cape $1" "" "lotus surf cape inferno, galaxy, off, a picture from $dir, or add <picture>"; return 2 }
+    _rs_mod_ready || return 1
+    _rs_mod_setting CAPE "file:$name"
+    ui_success "Your cape $name – a running game shows it within a second"
+    return 0
+  fi
   _rs_mod_ready || return 1
   _rs_mod_setting CAPE $1
   if [[ $1 == off ]]; then ui_success "No cape"
   else ui_success "The cape ${(C)1} – a running game shows it within a second; the menu (F1) has its size and height"; fi
+}
+
+# lotus surf skin [off|<model>|add <model.glb>|list]: another 3D model for the runner – a .glb of a person with a
+# skeleton, from <the game's folder>/resurf/skins. A running game takes it within a second.
+rs_skin() {
+  _rs_gamedata
+  local gd=$REPLY dir="$REPLY/resurf/skins" f name
+  _rs_kv "$gd/resurf/settings"
+  if [[ -z $1 || $1 == list ]]; then
+    ui_kv Skin "${KV[SKIN]:-off} – lotus surf skin <model>, off, or add <model.glb>"
+    for f in $dir/*.glb(N:t); do ui_dim "  $f"; done
+    return 0
+  fi
+  if [[ $1 == add ]]; then
+    _rs_addfile $dir "$2" "glb" "a .glb model" || return 1
+    name=$REPLY
+    _rs_mod_ready || return 1
+    _rs_mod_setting SKIN $name
+    ui_success "The skin $name is in – a running game shows it within a few seconds (it reads the file first); the menu (F1) has its size and height"
+    return 0
+  fi
+  if [[ $1 == off ]]; then
+    _rs_mod_ready || return 1
+    _rs_mod_setting SKIN off
+    ui_success "The game's own model"
+    return 0
+  fi
+  name=${1:t}
+  [[ -f $dir/$name ]] || { [[ -f $dir/$name.glb ]] && name=$name.glb }
+  [[ -f $dir/$name ]] || { ui_error "Unknown: lotus surf skin $1" "" "lotus surf skin off, a model from $dir, or add <model.glb>"; return 2 }
+  _rs_mod_ready || return 1
+  _rs_mod_setting SKIN $name
+  ui_success "The skin $name – a running game shows it within a few seconds"
 }
 
 # lotus surf stats: what the game saved – the mod writes it readable next to the game's own save
@@ -1013,6 +1082,8 @@ rs_help() {
   lotus surf fps                  the FPS counter on or off (F in the game too)
   lotus surf glow fix|original    the coins' glow without the black edge (fix), or as the project draws it
   lotus surf cape inferno|galaxy|off   a cape for the runner – more of it in the game's menu (F1)
+  lotus surf cape add <picture>   a cape of your own (png, jpg)
+  lotus surf skin add <model.glb>   another 3D model for the runner – lotus surf skin off for the game's own
   lotus surf mod on|off           the Resurf mod in the game, or the game as it is"
   ui_blank
   ui_path $D/settings
@@ -1034,7 +1105,8 @@ case ${1:-play} in
   coins|coin)                  rs_coins "${@:2}" ;;
   fps)                         rs_fps "$2" ;;
   glow)                        rs_glow "$2" ;;
-  cape)                        rs_cape "$2" ;;
+  cape)                        rs_cape "$2" "$3" ;;
+  skin|skins)                  rs_skin "$2" "$3" ;;
   stats|save|score)            rs_stats ;;
   mod)                         rs_mod "$2" ;;
   tool-play)                   rs_tool_play ;;
