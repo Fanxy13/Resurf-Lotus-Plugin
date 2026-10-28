@@ -135,6 +135,10 @@ check_has "fps again: off" "$(lotus surf fps 2>&1 | plain)" "The FPS counter is 
 check_has "fps: a word it does not know" "$(lotus surf fps maybe 2>&1 | plain)" "lotus surf fps on, or off"
 check_has "glow original" "$(lotus surf glow original 2>&1 | plain)" "as the project draws it"
 check_eq "  next to FPS" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original'
+check_has "cape: galaxy" "$(lotus surf cape galaxy 2>&1 | plain)" "The cape Galaxy"
+check_eq "  next to the others" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original\nCAPE=galaxy'
+check_has "cape: a design it does not know" "$(lotus surf cape rainbow 2>&1 | plain)" "lotus surf cape inferno, galaxy, or off"
+check_has "cape: off" "$(lotus surf cape off 2>&1 | plain)" "No cape"
 
 print -r -- 'a newer mod' >| $HOME/ResurfMod.dll
 check_has "a newer mod: the game has it not yet" "$(lotus surf mod 2>&1 | plain)" "has it not yet"

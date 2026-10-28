@@ -3,7 +3,8 @@
 // that sets Doorstop up); nothing of the game's own code is changed. It talks with Lotus through files in
 // <persistentDataPath>/resurf:
 //   inbox/<id>.req   from Lotus: "coins +5000" or "coins =5000" – done, then deleted
-//   settings         from Lotus, the F key and the menu: FPS=on|off, GLOW=fix|original, SPEED=<0.25–3>, AUTOSAVE=<seconds, 0 = off>
+//   settings         from Lotus, the F key and the menu: FPS=on|off, GLOW=fix|original, SPEED=<0.25–3>, AUTOSAVE=<seconds, 0 = off>,
+//                    CAPE=off|inferno|galaxy, CAPE_SIZE=<0.5–1.6>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off
 //   save.txt         to Lotus: coins, high score, best distance … and LAST=<id of the newest request done>
 // What it does:
 //   - the coins' glow (and the mystery box's): drawn additively, as a glow is – the project draws it with a
@@ -12,6 +13,7 @@
 //     quits – the game itself saves only after a run's coins are counted and when a phone sends it away
 //   - an FPS counter, bottom left (F switches it on and off)
 //   - a menu (M or F1) to change all of that in the game: FPS counter, glow, game speed, how often it saves, coins
+//   - a cape for the runner (Cape.cs): two designs, Inferno and Galaxy, chosen in the menu
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -47,7 +49,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "1.1";
+        public const string Version = "1.2";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -143,7 +145,8 @@ namespace Resurf
 
         // the menu (M or F1)
         static readonly int[] AutosaveChoices = { 0, 10, 20, 60 };
-        bool menu, speedDirty;
+        bool menu, speedDirty, capeDirty;
+        readonly Cape cape = new Cape();
         float speed = 1f, speedApplied = 1f;
         int autosave = 20;
         GUIStyle menuTitle, menuNote;
@@ -170,9 +173,16 @@ namespace Resurf
             WriteSave("start");
         }
 
-        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; }
+        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); }
 
-        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; }
+        // after the animations of the frame: the cape follows the runner
+        void LateUpdate()
+        {
+            try { cape.Tick(); }
+            catch (Exception e) { Log("cape: " + e.Message + " – the cape is off"); cape.Design = "off"; }
+        }
+
+        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; cape.Forget(); }
 
         void Update()
         {
@@ -334,6 +344,12 @@ namespace Resurf
                     int n;
                     if (line.StartsWith("SPEED=") && float.TryParse(line.Substring(6), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
                         speed = Mathf.Clamp(f, 0.25f, 3f);
+                    if (line.StartsWith("CAPE=")) { var d = line.Substring(5).Trim(); cape.Design = Array.IndexOf(CapeArt.Designs, d) >= 0 ? d : "off"; }
+                    if (line.StartsWith("CAPE_SIZE=") && float.TryParse(line.Substring(10), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        cape.Size = Mathf.Clamp(f, 0.5f, 1.6f);
+                    if (line.StartsWith("CAPE_HEIGHT=") && float.TryParse(line.Substring(12), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        cape.Height = Mathf.Clamp(f, -1f, 1f);
+                    if (line.StartsWith("CAPE_FLIP=")) cape.Flip = line.Substring(10).Trim() == "on";
                     if (line.StartsWith("AUTOSAVE=") && int.TryParse(line.Substring(9), NumberStyles.None, CultureInfo.InvariantCulture, out n))
                         autosave = n;
                 }
@@ -351,7 +367,7 @@ namespace Resurf
         }
 
         // the settings the mod and the menu own – the other lines of the file (Lotus's own) stay as they are
-        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=" };
+        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=" };
 
         void WriteSettings()
         {
@@ -369,6 +385,10 @@ namespace Resurf
                 lines.Add("GLOW=" + (fixGlow ? "fix" : "original"));
                 lines.Add("SPEED=" + speed.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("AUTOSAVE=" + autosave.ToString(CultureInfo.InvariantCulture));
+                lines.Add("CAPE=" + cape.Design);
+                lines.Add("CAPE_SIZE=" + cape.Size.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("CAPE_HEIGHT=" + cape.Height.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("CAPE_FLIP=" + (cape.Flip ? "on" : "off"));
                 File.WriteAllText(settingsFile, string.Join("\n", lines.ToArray()) + "\n");
                 settingsTime = File.GetLastWriteTimeUtc(settingsFile);
             }
@@ -400,8 +420,8 @@ namespace Resurf
             float scale = Screen.height / 720f;
             var old = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
-            float w = 340f, h = 440f;
-            var area = new Rect(20f, (720f - h) / 2f, w, h);
+            float w = 360f, h = 700f;
+            var area = new Rect(20f, 10f, w, h);
             var back = GUI.color;
             GUI.color = new Color(0f, 0f, 0f, 0.82f);
             GUI.DrawTexture(area, Texture2D.whiteTexture);
@@ -414,6 +434,8 @@ namespace Resurf
 
             bool newGlow = GUILayout.Toggle(fixGlow, " Coins' glow without the black edge");
             if (newGlow != fixGlow) SetGlow(newGlow);
+
+            DrawCapeMenu();
 
             GUILayout.Space(8f);
             GUILayout.Label("Game speed: " + speed.ToString("0.00", CultureInfo.InvariantCulture) + "x");
@@ -450,6 +472,39 @@ namespace Resurf
             GUILayout.Label("M or F1 closes the menu. A click here can reach the game too – use it while the game is paused or on the start screen.", menuNote);
             GUILayout.EndArea();
             GUI.matrix = old;
+        }
+
+        // the cape: the design (with a picture of it), how big, how high, which way round
+        void DrawCapeMenu()
+        {
+            GUILayout.Space(8f);
+            GUILayout.Label("Cape", menuTitle);
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical();
+            string[] names = { "none", "Inferno", "Galaxy" };
+            int sel = Mathf.Max(0, Array.IndexOf(CapeArt.Designs, cape.Design));
+            int pick = GUILayout.SelectionGrid(sel, names, 1);
+            if (pick != sel) { cape.Design = CapeArt.Designs[pick]; WriteSettings(); }
+            GUILayout.EndVertical();
+            var pic = cape.Design == "off" ? null : cape.Preview(cape.Design);
+            GUILayout.FlexibleSpace();
+            var slot = GUILayoutUtility.GetRect(60f, 105f);
+            if (pic != null) GUI.DrawTexture(new Rect(slot.x, slot.y, 60f, 105f), pic);
+            GUILayout.EndHorizontal();
+            if (cape.Design != "off")
+            {
+                GUILayout.Label("Size: " + cape.Size.ToString("0.00", CultureInfo.InvariantCulture) + "x");
+                float size = Mathf.Round(GUILayout.HorizontalSlider(cape.Size, 0.5f, 1.6f) * 20f) / 20f;
+                if (size != cape.Size) { cape.Size = size; capeDirty = true; }
+                GUILayout.Label("Height: " + cape.Height.ToString("0.00", CultureInfo.InvariantCulture));
+                float height = Mathf.Round(GUILayout.HorizontalSlider(cape.Height, -1f, 1f) * 20f) / 20f;
+                if (height != cape.Height) { cape.Height = height; capeDirty = true; }
+                bool flip = GUILayout.Toggle(cape.Flip, " Other way round (if it hangs at the front)");
+                if (flip != cape.Flip) { cape.Flip = flip; WriteSettings(); }
+                if (GUILayout.Button("Look for the character again")) cape.Forget();
+                if (cape.Status.Length > 0) GUILayout.Label(cape.Status, menuNote);
+            }
+            if (capeDirty && Event.current.type == EventType.MouseUp) { capeDirty = false; WriteSettings(); }
         }
 
         void AddCoins(int n)

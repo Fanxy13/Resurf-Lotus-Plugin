@@ -52,9 +52,15 @@ real one, so the Finder, the Dock and `lotus surf` start it as before. Nothing o
   readable copy, `resurf/save.txt`, next to the game's own `playerdata` in
   `~/Library/Application Support/unity.Kiloo Games.Subway Surf` – `lotus surf stats` shows it.
 - **An FPS counter** – bottom left, green from 50, yellow from 30, red below: `lotus surf fps`, or **F** in the game.
+- **A cape** – cosmetics for the runner, with two designs the mod draws itself: **Inferno**, flames that boil and
+  end in tongues of fire, and **Galaxy**, a night sky with twinkling stars, a golden crescent and a golden trim. It
+  hangs from the character's neck (or back), swings with the cloth, trails when the runner runs and flutters. Choose
+  it, its size and its height in the menu, or `lotus surf cape inferno|galaxy|off`. The mod finds the character by
+  the names of its bones; the menu says where the cape hangs, and *Other way round* turns it if it ever sits at the
+  front.
 - **A menu in the game** – **M** or **F1** opens it (Esc or the same key closes it): the FPS counter, the coins' glow,
-  the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins (+100,
-  +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`) and
+  the cape, the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins
+  (+100, +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`, `CAPE`, `CAPE_SIZE`, `CAPE_HEIGHT`, `CAPE_FLIP`) and
   is there at the next start. A click on the menu can reach the game behind it, so use it on the start screen or
   while the game is paused.
 
@@ -79,6 +85,7 @@ the repository. `zsh mod/build.zsh <the app>` builds the DLL yourself (with .NET
 | `lotus surf coins 5000` | 5000 coins more in the game – `coins` alone shows them, `coins set 100000` sets them |
 | `lotus surf stats` | coins, high score, best distance, mystery boxes, missions – as the game saved them |
 | `lotus surf fps` | the FPS counter on or off (bottom left; **F** in the game switches it too) |
+| `lotus surf cape inferno\|galaxy\|off` | a cape for the runner – size, height and more in the game's menu (**F1**) |
 | `lotus surf glow fix\|original` | the coins' glow without the black edge (the default), or as the project draws it |
 | `lotus surf mod on\|off` | the Resurf mod in the game, or the game as it is |
 
