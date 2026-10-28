@@ -160,7 +160,10 @@ namespace Resurf
         List<Transform> gameChain = new List<Transform>();
         Cand bound;
         int boundVersion = -1;
-        Quaternion yaw = Quaternion.identity;
+        Quaternion yaw = Quaternion.identity;       // where the skin faces when it stands: relative to the game's model
+        Quaternion facing = Quaternion.identity;    // where it faces now (in the world)
+        Vector3 lastHips, runVel;
+        bool haveHips;
 
         public bool Ready { get { return root != null && root.activeSelf; } }
 
@@ -444,13 +447,18 @@ namespace Resurf
             string heading = "from the model";
             if (map.NamedSides && map.NamedRight.sqrMagnitude > 1e-6f)
             {
-                // the arms and legs tell where the character faces: forward = right × up
+                // the arms and legs give the line from the left to the right side; which way is front is the model's forward –
+                // the names left and right can be the other way round in a game's skeleton
                 var right = map.NamedRight.normalized;
-                face = Vector3.Cross(right, Vector3.up);
+                var named = Vector3.Cross(right, Vector3.up);
+                if (Vector3.Dot(named, face) < 0f) { named = -named; right = -right; }
+                face = named;
                 heading = "from its arms and legs";
                 map = RigMap.Read(bones, right);
             }
             yaw = Quaternion.Inverse(t.Root != null ? t.Root.rotation : Quaternion.identity) * Quaternion.LookRotation(face.normalized, Vector3.up);
+            facing = (t.Root != null ? t.Root.rotation : Quaternion.identity) * yaw;
+            haveHips = false; runVel = Vector3.zero;
 
             // the skin's spine and the game's spine
             gameChain = map.Chain();
@@ -458,6 +466,7 @@ namespace Resurf
             report.Append("skin ").Append(loaded).Append(" on ").Append(bound.Skin != null ? bound.Skin.name : "?").Append(", facing ").Append(heading).Append("\n\nthe game's skeleton (").Append(bones.Count).Append(" bones):\n").Append(map.Report);
             report.Append("\nthe skin's skeleton:\n").Append(glbMap.Report);
             int matched = 0, total = 0;
+            var missing = new List<string>();
             if (gameChain.Count >= 2 && glbChain.Count >= 2)
             {
                 float total2 = 0f;
@@ -476,6 +485,7 @@ namespace Resurf
                 matched += chainAims.Count;
             }
             total += Math.Max(0, glbChain.Count - 1);
+            if (chainAims.Count == 0) missing.Add("spine");
             // the limbs: shoulder → upper arm → forearm → hand, thigh → calf → foot
             string[][] parts = {
                 new[] { RigNames.Shoulder, RigNames.UpperArm }, new[] { RigNames.UpperArm, RigNames.ForeArm }, new[] { RigNames.ForeArm, RigNames.Hand },
@@ -486,7 +496,12 @@ namespace Resurf
                     total++;
                     var g = glbMap.Limb(p[0], side); var gt = glbMap.Limb(p[1], side);
                     var b = map.Limb(p[0], side); var bt = map.Limb(p[1], side);
-                    if (g == null || gt == null || b == null || bt == null || g == gt || b == bt) continue;
+                    if (g == null || gt == null || b == null || bt == null || g == gt || b == bt)
+                    {
+                        var why = (b == null ? "game " + p[0] : bt == null ? "game " + p[1] : g == null ? "skin " + p[0] : "skin " + p[1]);
+                        missing.Add(p[0] + "→" + p[1] + (side < 0 ? " L" : " R") + " (no " + why + ")");
+                        continue;
+                    }
                     var a = new Aim { G = g, Gt = gt, B = b, Bt = bt, Name = p[0] + (side < 0 ? " left" : " right") };
                     a.RestDir = (restPos[gt] - restPos[g]).normalized;
                     a.RestRot = restRot[g];
@@ -499,7 +514,8 @@ namespace Resurf
             if (lowest == float.MaxValue) foreach (var b in bones) if (b != null && b.position.y < lowest) lowest = b.position.y;
             var hipsT = map.Hips != null ? map.Hips : gameChain.Count > 0 ? gameChain[0] : null;
             gameFeetBelowHips = hipsT != null ? Mathf.Max(0f, hipsT.position.y - lowest + 0.04f * t.Height) : modelFeetBelowHips * t.Height / glbHeight;
-            Status = "on " + (bound.Skin != null ? bound.Skin.name : "the character") + ": " + matched + " of " + total + " parts follow the game's bones";
+            Status = "on " + (bound.Skin != null ? bound.Skin.name : "the character") + ": " + matched + " of " + total + " parts follow the game's bones"
+                + (missing.Count > 0 ? ". Missing: " + string.Join("; ", missing.ToArray()) : "");
             report.Append("\nfollowing: ").Append(matched).Append(" of ").Append(total).Append(" parts\n");
             Debug.Log("[Resurf] skin: " + Status);
             try { if (!string.IsNullOrEmpty(ReportFile)) File.WriteAllText(ReportFile, report.ToString()); } catch (Exception) { }
@@ -510,7 +526,25 @@ namespace Resurf
         void Drive(Tracker t)
         {
             var rootRot = t.Root != null ? t.Root.rotation : Quaternion.identity;
-            var heading = rootRot * yaw;
+            var hip = gameChain.Count > 0 ? gameChain[0] : null;
+            // the skin faces the way it runs: the hips' speed over the ground says it, whatever the bones are called;
+            // standing, it faces the way the game's model does
+            float dt = Time.deltaTime;
+            var target = rootRot * yaw;
+            if (hip != null && dt > 1e-4f)
+            {
+                var p = hip.position;
+                if (haveHips)
+                {
+                    var v = (p - lastHips) / dt;
+                    v.y = 0f;
+                    if (v.magnitude < 100f * t.Height) runVel = Vector3.Lerp(runVel, v, Mathf.Clamp01(dt * 8f));
+                }
+                lastHips = p; haveHips = true;
+                if (runVel.magnitude > 1.5f * t.Height) target = Quaternion.LookRotation(runVel.normalized, Vector3.up);
+            }
+            facing = dt > 1e-4f ? Quaternion.Slerp(facing, target, Mathf.Clamp01(dt * 10f)) : target;
+            var heading = facing;
             if (Flip) heading = heading * Quaternion.Euler(0f, 180f, 0f);
             float s = t.Height / glbHeight * Mathf.Clamp(Size, 0.3f, 3f);
             ModelHeight = glbHeight * s;
