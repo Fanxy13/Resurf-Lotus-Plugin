@@ -52,6 +52,11 @@ real one, so the Finder, the Dock and `lotus surf` start it as before. Nothing o
   readable copy, `resurf/save.txt`, next to the game's own `playerdata` in
   `~/Library/Application Support/unity.Kiloo Games.Subway Surf` – `lotus surf stats` shows it.
 - **An FPS counter** – bottom left, green from 50, yellow from 30, red below: `lotus surf fps`, or **F** in the game.
+- **A menu in the game** – **M** or **F1** opens it (Esc or the same key closes it): the FPS counter, the coins' glow,
+  the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins (+100,
+  +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`) and
+  is there at the next start. A click on the menu can reach the game behind it, so use it on the start screen or
+  while the game is paused.
 
 GitHub Actions builds the DLL against the libraries of the game's own Mac build, takes Doorstop's official macOS
 build (checked against GitHub's SHA-256), tests both in the game – coins that waited, coins while it runs, the glow,
