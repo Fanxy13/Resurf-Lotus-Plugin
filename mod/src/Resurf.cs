@@ -49,7 +49,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "1.2";
+        public const string Version = "1.3";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -501,7 +501,10 @@ namespace Resurf
                 if (height != cape.Height) { cape.Height = height; capeDirty = true; }
                 bool flip = GUILayout.Toggle(cape.Flip, " Other way round (if it hangs at the front)");
                 if (flip != cape.Flip) { cape.Flip = flip; WriteSettings(); }
-                if (GUILayout.Button("Look for the character again")) cape.Forget();
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("Next character")) cape.Next();
+                if (GUILayout.Button("Look again")) cape.Forget();
+                GUILayout.EndHorizontal();
                 if (cape.Status.Length > 0) GUILayout.Label(cape.Status, menuNote);
             }
             if (capeDirty && Event.current.type == EventType.MouseUp) { capeDirty = false; WriteSettings(); }

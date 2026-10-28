@@ -56,8 +56,9 @@ real one, so the Finder, the Dock and `lotus surf` start it as before. Nothing o
   end in tongues of fire, and **Galaxy**, a night sky with twinkling stars, a golden crescent and a golden trim. It
   hangs from the character's neck (or back), swings with the cloth, trails when the runner runs and flutters. Choose
   it, its size and its height in the menu, or `lotus surf cape inferno|galaxy|off`. The mod finds the character by
-  the names of its bones; the menu says where the cape hangs, and *Other way round* turns it if it ever sits at the
-  front.
+  the names of its bones and follows the character that is on screen – the menu's figure while you are in the menu,
+  the runner during the run. The menu says where the cape hangs; *Next character* picks another figure of the game
+  by hand, and *Other way round* turns the cape if it ever sits at the front.
 - **A menu in the game** – **M** or **F1** opens it (Esc or the same key closes it): the FPS counter, the coins' glow,
   the cape, the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins
   (+100, +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`, `CAPE`, `CAPE_SIZE`, `CAPE_HEIGHT`, `CAPE_FLIP`) and

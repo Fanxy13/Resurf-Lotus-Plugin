@@ -280,7 +280,11 @@ namespace Resurf
         float charH = 1.8f, lift, nextFind, lastSize, simTime;
         Vector3 lastA, vel;
         bool placed;
-        string onStatus;
+        // which character: watch is one of its skinned meshes (is it on screen?), pin the name chosen by hand
+        Renderer watch;
+        string pin, attached = "";
+        float nextCheck;
+        int unseen;
 
         public Texture2D Preview(string design)
         {
@@ -301,7 +305,20 @@ namespace Resurf
             return f;
         }
 
-        public void Forget() { anchor = null; placed = false; nextFind = 0f; }
+        // back to choosing by itself
+        public void Forget() { anchor = null; placed = false; nextFind = 0f; pin = null; }
+
+        // the next character that has a skinned model in the game, chosen by hand (the menu)
+        public void Next()
+        {
+            var list = Candidates();
+            if (list.Count == 0) { Status = "no character found"; return; }
+            int at = -1;
+            for (int k = 0; k < list.Count; k++) if (charRoot != null && list[k].Root == charRoot) at = k;
+            var c = list[(at + 1) % list.Count];
+            pin = c.Root.name;
+            Attach(c, (at + 1) % list.Count, list.Count);
+        }
 
         public void Dispose()
         {
@@ -321,10 +338,18 @@ namespace Resurf
                 if (now < nextFind) return;
                 nextFind = now + 1.5f;
                 if (!Find()) { Status = "no character found – it comes when one is in the game"; return; }
+                nextCheck = now + 1f;
+            }
+            // a character that is not on screen (the menu's, still in the scene) – look for the one that is
+            if (pin == null && now >= nextCheck)
+            {
+                nextCheck = now + 1f;
+                if (watch == null || !watch.isVisible) { if (++unseen >= 2) { unseen = 0; Find(); } }
+                else unseen = 0;
             }
             if (go == null && !Build()) return;
             if (!go.activeSelf) go.SetActive(true);
-            go.layer = charRoot != null ? charRoot.gameObject.layer : 0;
+            go.layer = watch != null ? watch.gameObject.layer : charRoot != null ? charRoot.gameObject.layer : 0;
 
             var frames = Frames(Design);
             mat.mainTexture = frames[(int)(now * (Design == "inferno" ? 12f : 5f)) % frames.Length];
@@ -361,8 +386,7 @@ namespace Resurf
             }
             lastA = a;
             Draw();
-            if (onStatus == null || !onStatus.EndsWith(anchor.name, StringComparison.Ordinal)) onStatus = "on " + anchor.name;
-            Status = onStatus;
+            Status = attached;
         }
 
         void Draw()
@@ -438,13 +462,47 @@ namespace Resurf
 
         static bool IsSkinned(Renderer r) { return r != null && r.GetType().Name == "SkinnedMeshRenderer"; }
 
-        // the first parent that has a skinned model below it: that is the character
-        static Transform ModelRoot(Transform t)
+        // a character the game has: its model (the parent of the skinned mesh – the skeleton hangs there too)
+        sealed class Cand
         {
-            for (var p = t; p != null; p = p.parent)
-                foreach (var r in p.GetComponentsInChildren<Renderer>(true))
-                    if (IsSkinned(r)) return p;
-            return null;
+            public Transform Root;
+            public Renderer Skin;
+            public bool Visible, Tagged, Foe;
+            public float Dist;
+        }
+
+        // everything with a skinned model: the one tagged Player first, then what is on screen and not a chaser,
+        // then the nearest to the camera
+        List<Cand> Candidates()
+        {
+            var cam = Camera.main;
+            var camPos = cam != null ? cam.transform.position : Vector3.zero;
+            GameObject player = null;
+            try { player = GameObject.FindWithTag("Player"); } catch (Exception) { }     // a tag the project does not have throws
+            var byRoot = new Dictionary<Transform, Cand>();
+            var list = new List<Cand>();
+            foreach (var r in UnityEngine.Object.FindObjectsOfType<Renderer>())
+            {
+                if (!IsSkinned(r) || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                if (go != null && r.transform.IsChildOf(go.transform)) continue;
+                var root = r.transform.parent != null ? r.transform.parent : r.transform;
+                Cand c;
+                if (byRoot.TryGetValue(root, out c)) { if (r.isVisible && !c.Visible) { c.Visible = true; c.Skin = r; } continue; }
+                c = new Cand { Root = root, Skin = r, Visible = r.isVisible, Dist = (r.bounds.center - camPos).sqrMagnitude };
+                c.Tagged = player != null && (r.transform.IsChildOf(player.transform) || player.transform.IsChildOf(root));
+                var n = root.name.ToLowerInvariant() + " " + r.name.ToLowerInvariant();
+                foreach (var foe in new[] { "police", "guard", "inspector", "dog", "chaser", "enemy", "cop", "npc" }) if (n.IndexOf(foe, StringComparison.Ordinal) >= 0) c.Foe = true;
+                byRoot[root] = c;
+                list.Add(c);
+            }
+            list.Sort((x, y) =>
+            {
+                if (x.Tagged != y.Tagged) return x.Tagged ? -1 : 1;
+                if (x.Foe != y.Foe) return x.Foe ? 1 : -1;
+                if (x.Visible != y.Visible) return x.Visible ? -1 : 1;
+                return x.Dist.CompareTo(y.Dist);
+            });
+            return list;
         }
 
         static float HeightOf(Transform root)
@@ -460,56 +518,55 @@ namespace Resurf
             return h < 0.4f || h > 6f ? 1.8f : h;
         }
 
+        // the best bone for a cape in the character's model – a little higher up when the skeleton is beside it
+        static Transform BestBone(Transform root, out float lift)
+        {
+            lift = 0f;
+            Transform best = null;
+            int bestScore = 0;
+            for (var scope = root; scope != null && best == null; scope = scope.parent)
+            {
+                foreach (var t in scope.GetComponentsInChildren<Transform>(true))
+                {
+                    float l;
+                    int sc = BoneScore(t.name, out l);
+                    if (sc > bestScore) { best = t; bestScore = sc; lift = l; }
+                }
+                if (scope == root.parent || scope.parent == null) break;
+            }
+            return best;
+        }
+
         bool Find()
         {
-            var cam = Camera.main;
-            var camPos = cam != null ? cam.transform.position : Vector3.zero;
-            var bones = new List<Transform>();
-            var scores = new List<int>();
-            var lifts = new List<float>();
-            var roots = new List<Transform>();
-            foreach (var t in UnityEngine.Object.FindObjectsOfType<Transform>())
-            {
-                if (t == null || !t.gameObject.activeInHierarchy || (go != null && t.IsChildOf(go.transform))) continue;
-                float l;
-                int s = BoneScore(t.name, out l);
-                if (s == 0) continue;
-                var root = ModelRoot(t);
-                if (root == null) continue;
-                bones.Add(t); scores.Add(s); lifts.Add(l); roots.Add(root);
-            }
-            if (bones.Count > 0)
-            {
-                // the character nearest the camera, and the best bone in it
-                int near = 0;
-                for (int k = 1; k < bones.Count; k++)
-                    if ((bones[k].position - camPos).sqrMagnitude < (bones[near].position - camPos).sqrMagnitude) near = k;
-                int best = near;
-                for (int k = 0; k < bones.Count; k++)
-                    if (roots[k] == roots[near] && scores[k] > scores[best]) best = k;
-                Attach(bones[best], roots[best], lifts[best], bones[best].name);
-                return true;
-            }
-            // no bone with a name we know: the skinned model nearest the camera, the cape on its back
-            Renderer pick = null;
-            foreach (var r in UnityEngine.Object.FindObjectsOfType<Renderer>())
-            {
-                if (!IsSkinned(r) || !r.enabled || !r.gameObject.activeInHierarchy) continue;
-                if (pick == null || (r.bounds.center - camPos).sqrMagnitude < (pick.bounds.center - camPos).sqrMagnitude) pick = r;
-            }
-            if (pick == null) return false;
-            var b = pick.bounds;
-            if (ownAnchor == null) { ownAnchor = new GameObject("ResurfCapeAnchor"); ownAnchor.hideFlags = HideFlags.HideInHierarchy; }
-            ownAnchor.transform.SetParent(pick.transform, true);
-            ownAnchor.transform.position = new Vector3(b.center.x, b.max.y - 0.2f * b.size.y, b.center.z);
-            Attach(ownAnchor.transform, ModelRoot(pick.transform) ?? pick.transform, 0f, pick.name + " (no known bone)");
+            var list = Candidates();
+            if (list.Count == 0) return false;
+            int pick = 0;
+            if (pin != null)
+                for (int k = 0; k < list.Count; k++) if (list[k].Root.name == pin) { pick = k; break; }
+            if (anchor != null && anchor.gameObject.activeInHierarchy && list[pick].Root == charRoot) { watch = list[pick].Skin; return true; }
+            Attach(list[pick], pick, list.Count);
             return true;
         }
 
-        void Attach(Transform bone, Transform root, float liftBy, string what)
+        void Attach(Cand c, int index, int count)
         {
-            anchor = bone; charRoot = root; lift = liftBy; charH = HeightOf(root); placed = false;
-            Debug.Log("[Resurf] cape: on " + what + " of " + root.name + ", " + charH.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " high");
+            float l;
+            var bone = BestBone(c.Root, out l);
+            string what;
+            if (bone != null) what = "on " + bone.name;
+            else
+            {
+                // no bone with a name we know: the cape on the model's back
+                var b = c.Skin.bounds;
+                if (ownAnchor == null) { ownAnchor = new GameObject("ResurfCapeAnchor"); ownAnchor.hideFlags = HideFlags.HideInHierarchy; }
+                ownAnchor.transform.SetParent(c.Skin.transform, true);
+                ownAnchor.transform.position = new Vector3(b.center.x, b.max.y - 0.2f * b.size.y, b.center.z);
+                bone = ownAnchor.transform; l = 0f; what = "on the model's back (no known bone)";
+            }
+            anchor = bone; charRoot = c.Root; watch = c.Skin; lift = l; charH = HeightOf(c.Root); placed = false;
+            attached = "Character " + (index + 1) + " of " + count + ": " + c.Root.name + " – " + what + (c.Visible ? "" : " (not on screen)");
+            Debug.Log("[Resurf] cape: " + attached + ", " + charH.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " high");
         }
     }
 }
