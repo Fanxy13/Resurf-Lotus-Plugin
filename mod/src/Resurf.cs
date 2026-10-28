@@ -49,7 +49,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "1.3";
+        public const string Version = "1.4";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()

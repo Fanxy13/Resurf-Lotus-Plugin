@@ -456,6 +456,9 @@ namespace Resurf
             if (n.IndexOf("neck", StringComparison.Ordinal) >= 0) return 4;
             if (n.IndexOf("chest", StringComparison.Ordinal) >= 0 || n.EndsWith("spine2", StringComparison.Ordinal) || n.EndsWith("spine_02", StringComparison.Ordinal) || n.EndsWith("spine3", StringComparison.Ordinal) || n.EndsWith("spine_03", StringComparison.Ordinal)) { lift = 0.1f; return 3; }
             if (n.EndsWith("spine1", StringComparison.Ordinal) || n.EndsWith("spine_01", StringComparison.Ordinal)) { lift = 0.14f; return 2; }
+            // the game's own skeleton: jLowerSpine, jUpperSpine … – the upper one is at the shoulders, the lower one at the hips
+            if (n.IndexOf("upper", StringComparison.Ordinal) >= 0 && n.IndexOf("spine", StringComparison.Ordinal) >= 0) { lift = 0.08f; return 3; }
+            if (n.IndexOf("lower", StringComparison.Ordinal) >= 0 && n.IndexOf("spine", StringComparison.Ordinal) >= 0) { lift = 0.3f; return 1; }
             if (n.IndexOf("spine", StringComparison.Ordinal) >= 0) { lift = 0.22f; return 1; }
             return 0;
         }
