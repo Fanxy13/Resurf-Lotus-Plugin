@@ -137,7 +137,7 @@ check_has "glow original" "$(lotus surf glow original 2>&1 | plain)" "as the pro
 check_eq "  next to FPS" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original'
 check_has "cape: galaxy" "$(lotus surf cape galaxy 2>&1 | plain)" "The cape Galaxy"
 check_eq "  next to the others" "$(<$GD/resurf/settings)" $'FPS=off\nGLOW=original\nCAPE=galaxy'
-check_has "cape: a design it does not know" "$(lotus surf cape rainbow 2>&1 | plain)" "lotus surf cape inferno, galaxy, or off"
+check_has "cape: a design it does not know" "$(lotus surf cape rainbow 2>&1 | plain)" "lotus surf cape inferno, galaxy, off, a picture from"
 check_has "cape: off" "$(lotus surf cape off 2>&1 | plain)" "No cape"
 print -r -- 'a picture' >| $HOME/mycape.png
 check_has "cape add: a picture of yours" "$(lotus surf cape add $HOME/mycape.png 2>&1 | plain)" "Your cape mycape.png is in"
