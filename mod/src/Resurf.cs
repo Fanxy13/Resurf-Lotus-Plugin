@@ -4,7 +4,7 @@
 // <persistentDataPath>/resurf:
 //   inbox/<id>.req   from Lotus: "coins +5000" or "coins =5000" – done, then deleted
 //   settings         from Lotus, the F key and the menu: FPS=on|off, GLOW=fix|original, SPEED=<0.25–3>, AUTOSAVE=<seconds, 0 = off>,
-//                    CAPE=off|inferno|galaxy, CAPE_SIZE=<0.5–1.6>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off
+//                    CAPE=off|inferno|galaxy, CAPE_SIZE=<0.5–3>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off
 //   save.txt         to Lotus: coins, high score, best distance … and LAST=<id of the newest request done>
 // What it does:
 //   - the coins' glow (and the mystery box's): drawn additively, as a glow is – the project draws it with a
@@ -49,7 +49,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "1.4";
+        public const string Version = "1.5";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -346,7 +346,7 @@ namespace Resurf
                         speed = Mathf.Clamp(f, 0.25f, 3f);
                     if (line.StartsWith("CAPE=")) { var d = line.Substring(5).Trim(); cape.Design = Array.IndexOf(CapeArt.Designs, d) >= 0 ? d : "off"; }
                     if (line.StartsWith("CAPE_SIZE=") && float.TryParse(line.Substring(10), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
-                        cape.Size = Mathf.Clamp(f, 0.5f, 1.6f);
+                        cape.Size = Mathf.Clamp(f, 0.5f, 3f);
                     if (line.StartsWith("CAPE_HEIGHT=") && float.TryParse(line.Substring(12), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
                         cape.Height = Mathf.Clamp(f, -1f, 1f);
                     if (line.StartsWith("CAPE_FLIP=")) cape.Flip = line.Substring(10).Trim() == "on";
@@ -494,7 +494,7 @@ namespace Resurf
             if (cape.Design != "off")
             {
                 GUILayout.Label("Size: " + cape.Size.ToString("0.00", CultureInfo.InvariantCulture) + "x");
-                float size = Mathf.Round(GUILayout.HorizontalSlider(cape.Size, 0.5f, 1.6f) * 20f) / 20f;
+                float size = Mathf.Round(GUILayout.HorizontalSlider(cape.Size, 0.5f, 3f) * 20f) / 20f;
                 if (size != cape.Size) { cape.Size = size; capeDirty = true; }
                 GUILayout.Label("Height: " + cape.Height.ToString("0.00", CultureInfo.InvariantCulture));
                 float height = Mathf.Round(GUILayout.HorizontalSlider(cape.Height, -1f, 1f) * 20f) / 20f;

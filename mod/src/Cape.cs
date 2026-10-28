@@ -276,13 +276,13 @@ namespace Resurf
         Material mat;
         MeshRenderer rend;
         Vector3[] verts;
-        Transform anchor, charRoot;
+        Transform anchor, charRoot, charKey, pinKey;
         float charH = 1.8f, lift, nextFind, lastSize, simTime;
         Vector3 lastA, vel;
         bool placed;
         // which character: watch is one of its skinned meshes (is it on screen?), pin the name chosen by hand
         Renderer watch;
-        string pin, attached = "";
+        string attached = "";
         float nextCheck;
         int unseen;
 
@@ -306,7 +306,7 @@ namespace Resurf
         }
 
         // back to choosing by itself
-        public void Forget() { anchor = null; placed = false; nextFind = 0f; pin = null; }
+        public void Forget() { anchor = null; placed = false; nextFind = 0f; pinKey = null; }
 
         // the next character that has a skinned model in the game, chosen by hand (the menu)
         public void Next()
@@ -314,9 +314,9 @@ namespace Resurf
             var list = Candidates();
             if (list.Count == 0) { Status = "no character found"; return; }
             int at = -1;
-            for (int k = 0; k < list.Count; k++) if (charRoot != null && list[k].Root == charRoot) at = k;
+            for (int k = 0; k < list.Count; k++) if (charKey != null && list[k].Key == charKey) at = k;
             var c = list[(at + 1) % list.Count];
-            pin = c.Root.name;
+            pinKey = c.Key;
             Attach(c, (at + 1) % list.Count, list.Count);
         }
 
@@ -341,7 +341,7 @@ namespace Resurf
                 nextCheck = now + 1f;
             }
             // a character that is not on screen (the menu's, still in the scene) – look for the one that is
-            if (pin == null && now >= nextCheck)
+            if (pinKey == null && now >= nextCheck)
             {
                 nextCheck = now + 1f;
                 if (watch == null || !watch.isVisible) { if (++unseen >= 2) { unseen = 0; Find(); } }
@@ -355,8 +355,8 @@ namespace Resurf
             mat.mainTexture = frames[(int)(now * (Design == "inferno" ? 12f : 5f)) % frames.Length];
 
             float scale = charH / 1.8f;
-            float size = Mathf.Clamp(Size, 0.5f, 1.6f);
-            if (!placed || size != lastSize) { sim.Setup(0.30f * charH * size, 0.525f * charH * size); lastSize = size; }
+            float size = Mathf.Clamp(Size, 0.5f, 3f);
+            if (!placed || size != lastSize) { sim.Setup(0.42f * charH * size, 0.75f * charH * size); lastSize = size; }
 
             var f = charRoot != null ? charRoot.forward : Vector3.forward;
             f.y = 0f;
@@ -365,7 +365,7 @@ namespace Resurf
             if (Flip) back = -back;
             var right = Vector3.Cross(back, Vector3.up);
             float backOff = (lift > 0.01f ? 0.08f : 0.05f) * charH;
-            var a = anchor.position + Vector3.up * ((lift + Mathf.Clamp(Height, -1f, 1f) * 0.15f) * charH);
+            var a = anchor.position + Vector3.up * ((lift + Mathf.Clamp(Height, -1f, 1f) * 0.3f) * charH);
 
             float dt = Mathf.Min(Time.deltaTime, 0.1f);
             if (!placed || (a - lastA).magnitude > 5f * Mathf.Max(1f, scale))
@@ -465,11 +465,24 @@ namespace Resurf
 
         static bool IsSkinned(Renderer r) { return r != null && r.GetType().Name == "SkinnedMeshRenderer"; }
 
+        // the skeleton's root bone of a skinned mesh (SkinnedMeshRenderer.rootBone, through reflection: no module needed)
+        static Transform RootBone(Renderer r)
+        {
+            try
+            {
+                var p = r.GetType().GetProperty("rootBone");
+                return p == null ? null : p.GetValue(r, null) as Transform;
+            }
+            catch (Exception) { return null; }
+        }
+
         // a character the game has: its model (the parent of the skinned mesh – the skeleton hangs there too)
         sealed class Cand
         {
-            public Transform Root;
+            public Transform Root;      // the parent of the skinned mesh – gives the direction the character faces
+            public Transform Key;       // the skeleton's root bone: one per character, even when many share a folder (avatars)
             public Renderer Skin;
+            public Bounds Bounds;       // of all the skinned meshes of this character
             public bool Visible, Tagged, Foe;
             public float Dist;
         }
@@ -489,13 +502,15 @@ namespace Resurf
                 if (!IsSkinned(r) || !r.enabled || !r.gameObject.activeInHierarchy) continue;
                 if (go != null && r.transform.IsChildOf(go.transform)) continue;
                 var root = r.transform.parent != null ? r.transform.parent : r.transform;
+                var key = RootBone(r);
+                if (key == null) key = root;
                 Cand c;
-                if (byRoot.TryGetValue(root, out c)) { if (r.isVisible && !c.Visible) { c.Visible = true; c.Skin = r; } continue; }
-                c = new Cand { Root = root, Skin = r, Visible = r.isVisible, Dist = (r.bounds.center - camPos).sqrMagnitude };
+                if (byRoot.TryGetValue(key, out c)) { c.Bounds.Encapsulate(r.bounds); if (r.isVisible && !c.Visible) { c.Visible = true; c.Skin = r; } continue; }
+                c = new Cand { Root = root, Key = key, Skin = r, Bounds = r.bounds, Visible = r.isVisible, Dist = (r.bounds.center - camPos).sqrMagnitude };
                 c.Tagged = player != null && (r.transform.IsChildOf(player.transform) || player.transform.IsChildOf(root));
                 var n = root.name.ToLowerInvariant() + " " + r.name.ToLowerInvariant();
                 foreach (var foe in new[] { "police", "guard", "inspector", "dog", "chaser", "enemy", "cop", "npc" }) if (n.IndexOf(foe, StringComparison.Ordinal) >= 0) c.Foe = true;
-                byRoot[root] = c;
+                byRoot[key] = c;
                 list.Add(c);
             }
             list.Sort((x, y) =>
@@ -508,34 +523,24 @@ namespace Resurf
             return list;
         }
 
-        static float HeightOf(Transform root)
+        static float HeightOf(Bounds b)
         {
-            bool any = false;
-            var b = new Bounds();
-            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
-            {
-                if (!IsSkinned(r)) continue;
-                if (!any) { b = r.bounds; any = true; } else b.Encapsulate(r.bounds);
-            }
-            float h = any ? b.size.y : 0f;
-            return h < 0.4f || h > 6f ? 1.8f : h;
+            float h = b.size.y;
+            return h < 0.05f || h > 60f ? 1.8f : h;
         }
 
-        // the best bone for a cape in the character's model – a little higher up when the skeleton is beside it
-        static Transform BestBone(Transform root, out float lift)
+        // the best bone for a cape in the character's own skeleton (not in the folder with all the others)
+        static Transform BestBone(Cand c, out float lift)
         {
             lift = 0f;
             Transform best = null;
             int bestScore = 0;
-            for (var scope = root; scope != null && best == null; scope = scope.parent)
+            var scope = c.Key != null && c.Key != c.Root ? c.Key : c.Root;
+            foreach (var t in scope.GetComponentsInChildren<Transform>(true))
             {
-                foreach (var t in scope.GetComponentsInChildren<Transform>(true))
-                {
-                    float l;
-                    int sc = BoneScore(t.name, out l);
-                    if (sc > bestScore) { best = t; bestScore = sc; lift = l; }
-                }
-                if (scope == root.parent || scope.parent == null) break;
+                float l;
+                int sc = BoneScore(t.name, out l);
+                if (sc > bestScore) { best = t; bestScore = sc; lift = l; }
             }
             return best;
         }
@@ -545,9 +550,9 @@ namespace Resurf
             var list = Candidates();
             if (list.Count == 0) return false;
             int pick = 0;
-            if (pin != null)
-                for (int k = 0; k < list.Count; k++) if (list[k].Root.name == pin) { pick = k; break; }
-            if (anchor != null && anchor.gameObject.activeInHierarchy && list[pick].Root == charRoot) { watch = list[pick].Skin; return true; }
+            if (pinKey != null)
+                for (int k = 0; k < list.Count; k++) if (list[k].Key == pinKey) { pick = k; break; }
+            if (anchor != null && anchor.gameObject.activeInHierarchy && list[pick].Key == charKey) { watch = list[pick].Skin; return true; }
             Attach(list[pick], pick, list.Count);
             return true;
         }
@@ -555,7 +560,7 @@ namespace Resurf
         void Attach(Cand c, int index, int count)
         {
             float l;
-            var bone = BestBone(c.Root, out l);
+            var bone = BestBone(c, out l);
             string what;
             if (bone != null) what = "on " + bone.name;
             else
@@ -567,8 +572,8 @@ namespace Resurf
                 ownAnchor.transform.position = new Vector3(b.center.x, b.max.y - 0.2f * b.size.y, b.center.z);
                 bone = ownAnchor.transform; l = 0f; what = "on the model's back (no known bone)";
             }
-            anchor = bone; charRoot = c.Root; watch = c.Skin; lift = l; charH = HeightOf(c.Root); placed = false;
-            attached = "Character " + (index + 1) + " of " + count + ": " + c.Root.name + " – " + what + (c.Visible ? "" : " (not on screen)");
+            anchor = bone; charRoot = c.Root; charKey = c.Key; watch = c.Skin; lift = l; charH = HeightOf(c.Bounds); placed = false;
+            attached = "Character " + (index + 1) + " of " + count + ": " + c.Skin.name + " – " + what + (c.Visible ? "" : " (not on screen)");
             Debug.Log("[Resurf] cape: " + attached + ", " + charH.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " high");
         }
     }
