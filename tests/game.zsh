@@ -153,7 +153,7 @@ grep -q -F '[Resurf] look: Hidden/Internal-Colored yes' $log && ok "the look's s
 waitlog $log "[Resurf] look: sharper" 5 && ok "$(grep -m1 -F '[Resurf] look: sharper' $log | cut -c1-140)" || fail "not sharper: $(grep -F '[Resurf] look' $log | head -3 | tr '\n' ' ')"
 waitlog $log "[Resurf] look: pretty on the camera" 10 && ok "$(grep -m1 -F '[Resurf] look: pretty on' $log | cut -c1-120)" || fail "the look found no camera: $(grep -F '[Resurf] look' $log | head -3 | tr '\n' ' ')"
 out=$(lotus surf look sharp off); print -r -- "  lotus surf look sharp off: ${out## #}"
-waitlog $log "[Resurf] look: the game's own quality again" 6 && ok "  sharper off, while it runs" || fail "sharper did not go off"
+waitlog $log "[Resurf] look: the game's own quality again" 6 && ok "  sharper off, while it runs" || fail "sharper did not go off: $(grep -F '[Resurf] look' $log | tail -2 | tr '\n' ' ') – settings: $(tr '\n' ' ' <$GDATA/resurf/settings)"
 sleep 5
 stop $pid 1 30
 local saved=$(grep -m1 "^COINS=" $GDATA/resurf/save.txt 2>/dev/null)
@@ -183,7 +183,8 @@ say "The game's logs"
 for log in $OUT/Player-*.log(N); do
   local -i ex=$(grep -c 'Exception' $log)
   print -r -- "  ${log:t}: $(grep -c -F '[Resurf]' $log) lines of the mod, $ex with an exception"
-  grep -F '[Resurf]' $log | head -12 | cut -c1-160 | sed 's/^/    /'
+  grep -F '[Resurf]' $log | head -24 | cut -c1-160 | sed 's/^/    /'
+  (( ex )) && grep -m3 -A2 'Exception' $log | cut -c1-200 | sed 's/^/    ! /'
   grep -E -m5 'Crash!!!|Received signal SIG' $log && fail "it crashed"
 done
 (( bad )) && exit 1

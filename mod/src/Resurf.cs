@@ -146,7 +146,7 @@ namespace Resurf
         const string Additive = "Mobile/Particles/Additive";
 
         string dir, inbox, settingsFile, saveFile;
-        DateTime settingsTime;
+        string settingsText;
         bool fps, fixGlow = true, glowSaid, saveSaid;
         string last = "";
         float nextInbox, nextSettings, nextSave, glowUntil, nextGlow;
@@ -362,12 +362,14 @@ namespace Resurf
             try
             {
                 if (!File.Exists(settingsFile)) return;
-                var t = File.GetLastWriteTimeUtc(settingsFile);
-                if (!first && t == settingsTime) return;
-                settingsTime = t;
+                // the whole file, not its time: Mono's file times have whole seconds – two changes in one second
+                // (lotus surf look writes two lines) looked like one
+                var text = File.ReadAllText(settingsFile);
+                if (!first && text == settingsText) return;
+                settingsText = text;
                 string lookWant = null, sharpWant = null;
                 float lookGlow = look.Glow, lookContrast = look.Contrast, lookWarmth = look.Warmth, lookVignette = look.Vignette;
-                foreach (var raw in File.ReadAllLines(settingsFile))
+                foreach (var raw in text.Split('\n'))
                 {
                     var line = raw.Trim();
                     if (line.StartsWith("FPS=")) fps = line.Substring(4) == "on";
@@ -467,8 +469,9 @@ namespace Resurf
                 lines.Add("LOOK_WARMTH=" + look.Warmth.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("LOOK_VIGNETTE=" + look.Vignette.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("SHARP=" + (look.Sharp ? "on" : "off"));
-                File.WriteAllText(settingsFile, string.Join("\n", lines.ToArray()) + "\n");
-                settingsTime = File.GetLastWriteTimeUtc(settingsFile);
+                var text = string.Join("\n", lines.ToArray()) + "\n";
+                File.WriteAllText(settingsFile, text);
+                settingsText = text;
             }
             catch (Exception) { }
         }
