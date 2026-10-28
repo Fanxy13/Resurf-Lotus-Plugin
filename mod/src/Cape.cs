@@ -355,7 +355,7 @@ namespace Resurf
             mat.mainTexture = frames[(int)(now * (Design == "inferno" ? 12f : 5f)) % frames.Length];
 
             float scale = charH / 1.8f;
-            float size = Mathf.Clamp(Size, 0.5f, 3f);
+            float size = Mathf.Clamp(Size, 0.5f, 5f);
             if (!placed || size != lastSize) { sim.Setup(0.42f * charH * size, 0.75f * charH * size); lastSize = size; }
 
             var f = charRoot != null ? charRoot.forward : Vector3.forward;
@@ -523,10 +523,23 @@ namespace Resurf
             return list;
         }
 
-        static float HeightOf(Bounds b)
+        // how tall the character is: its meshes' bounds, and the span of its skeleton from the lowest bone to the
+        // highest (a little more: the head goes over its bone) – the bigger one, since the bounds can be too small
+        static float HeightOf(Cand c, out float fromBounds, out float fromBones)
         {
-            float h = b.size.y;
-            return h < 0.05f || h > 60f ? 1.8f : h;
+            fromBounds = c.Bounds.size.y;
+            fromBones = 0f;
+            var scope = c.Key != null && c.Key != c.Root ? c.Key : c.Root;
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var t in scope.GetComponentsInChildren<Transform>(true))
+            {
+                float y = t.position.y;
+                if (y < lo) lo = y;
+                if (y > hi) hi = y;
+            }
+            if (hi > lo) fromBones = (hi - lo) * 1.15f;
+            float h = Mathf.Max(fromBounds < 60f ? fromBounds : 0f, fromBones < 60f ? fromBones : 0f);
+            return h < 0.05f ? 1.8f : h;
         }
 
         // the best bone for a cape in the character's own skeleton (not in the folder with all the others)
@@ -572,9 +585,11 @@ namespace Resurf
                 ownAnchor.transform.position = new Vector3(b.center.x, b.max.y - 0.2f * b.size.y, b.center.z);
                 bone = ownAnchor.transform; l = 0f; what = "on the model's back (no known bone)";
             }
-            anchor = bone; charRoot = c.Root; charKey = c.Key; watch = c.Skin; lift = l; charH = HeightOf(c.Bounds); placed = false;
-            attached = "Character " + (index + 1) + " of " + count + ": " + c.Skin.name + " – " + what + (c.Visible ? "" : " (not on screen)");
-            Debug.Log("[Resurf] cape: " + attached + ", " + charH.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " high");
+            anchor = bone; charRoot = c.Root; charKey = c.Key; watch = c.Skin; lift = l; float hb, hk; charH = HeightOf(c, out hb, out hk); placed = false;
+            attached = "Character " + (index + 1) + " of " + count + ": " + c.Skin.name + " – " + what + (c.Visible ? "" : " (not on screen)")
+                + ". Height " + charH.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+                + " (meshes " + hb.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ", bones " + hk.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ")";
+            Debug.Log("[Resurf] cape: " + attached);
         }
     }
 }
