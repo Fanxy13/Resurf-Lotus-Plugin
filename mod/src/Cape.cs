@@ -114,7 +114,7 @@ namespace Resurf
 
         public static readonly string[] Designs = { "off", "inferno", "galaxy" };
 
-        static float Hash(int x, int y, int s)
+        internal static float Hash(int x, int y, int s)
         {
             unchecked
             {
@@ -125,9 +125,9 @@ namespace Resurf
             }
         }
 
-        static float Smooth(float t) { t = Mathf.Clamp01(t); return t * t * (3f - 2f * t); }
+        internal static float Smooth(float t) { t = Mathf.Clamp01(t); return t * t * (3f - 2f * t); }
 
-        static float VNoise(float x, float y, int s)
+        internal static float VNoise(float x, float y, int s)
         {
             int xi = Mathf.FloorToInt(x), yi = Mathf.FloorToInt(y);
             float fx = Smooth(x - xi), fy = Smooth(y - yi);
@@ -135,12 +135,12 @@ namespace Resurf
             return Mathf.Lerp(Mathf.Lerp(a, b, fx), Mathf.Lerp(c, d, fx), fy);
         }
 
-        static float Fbm(float x, float y, int s)
+        internal static float Fbm(float x, float y, int s)
         {
             return VNoise(x, y, s) * 0.5f + VNoise(x * 2.03f + 5.1f, y * 2.03f + 1.7f, s + 1) * 0.3f + VNoise(x * 4.1f + 9.3f, y * 4.1f + 3.9f, s + 2) * 0.2f;
         }
 
-        static Color Ramp(float t, Color[] c)
+        internal static Color Ramp(float t, Color[] c)
         {
             t = Mathf.Clamp01(t) * (c.Length - 1);
             int i = Mathf.Min((int)t, c.Length - 2);
@@ -345,7 +345,7 @@ namespace Resurf
         }
 
         // a picture of the player's: Unity's own reader when this build has it (png, jpg), else the mod's PNG reader
-        static Texture2D[] LoadFile(string path)
+        internal static Texture2D[] LoadFile(string path)
         {
             var bytes = File.ReadAllBytes(path);
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);

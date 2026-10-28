@@ -5,8 +5,10 @@
 //   inbox/<id>.req   from Lotus: "coins +5000" or "coins =5000" – done, then deleted
 //   settings         from Lotus, the F key and the menu: FPS=on|off, GLOW=fix|original, SPEED=<0.25–3>, AUTOSAVE=<seconds, 0 = off>,
 //                    CAPE=off|inferno|galaxy|file:<picture>, CAPE_SIZE=<0.5–5>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off,
-//                    SKIN=off|<file.glb>, SKIN_SIZE=<0.3–3>, SKIN_HEIGHT=<-1–1>, SKIN_FLIP=on|off
+//                    SKIN=off|<file.glb>, SKIN_SIZE=<0.3–3>, SKIN_HEIGHT=<-1–1>, SKIN_FLIP=on|off,
+//                    SKY=original|sunset|night|neon|aurora|day|file:<picture>
 //   capes/           your pictures for the cape (png, jpg)      skins/   your .glb models      skin.txt  how the last skin was matched
+//   skies/           your pictures for the sky (png, jpg – a panorama too)
 //   save.txt         to Lotus: coins, high score, best distance … and LAST=<id of the newest request done>
 // What it does:
 //   - the coins' glow (and the mystery box's): drawn additively, as a glow is – the project draws it with a
@@ -17,6 +19,7 @@
 //   - a menu (M or F1) to change all of that in the game: FPS counter, glow, game speed, how often it saves, coins
 //   - a cape for the runner (Cape.cs): two designs, Inferno and Galaxy, and pictures of your own (the capes folder)
 //   - skins (Skin.cs): another 3D model for the runner – a .glb in the skins folder, chosen in the menu
+//   - the sky (Sky.cs): five skies the mod paints, or a picture of yours, instead of the game's plain gradient
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -52,7 +55,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "2.2";
+        public const string Version = "2.3";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -152,8 +155,10 @@ namespace Resurf
         readonly Tracker tracker = new Tracker();
         readonly Cape cape = new Cape();
         readonly SkinModel skin = new SkinModel();
-        string capesDir, skinsDir;
-        List<string> capeFiles = new List<string>(), skinFiles = new List<string>();
+        readonly Sky sky = new Sky();
+        string capesDir, skinsDir, skiesDir;
+        List<string> capeFiles = new List<string>(), skinFiles = new List<string>(), skyFiles = new List<string>();
+        float nextSky;
         Vector2 menuScroll;
         float speed = 1f, speedApplied = 1f;
         int autosave = 20;
@@ -173,8 +178,10 @@ namespace Resurf
             saveFile = Path.Combine(dir, "save.txt");
             capesDir = Path.Combine(dir, "capes");
             skinsDir = Path.Combine(dir, "skins");
-            try { Directory.CreateDirectory(inbox); Directory.CreateDirectory(capesDir); Directory.CreateDirectory(skinsDir); } catch (Exception e) { Log("no folder " + dir + ": " + e.Message); }
+            skiesDir = Path.Combine(dir, "skies");
+            try { Directory.CreateDirectory(inbox); Directory.CreateDirectory(capesDir); Directory.CreateDirectory(skinsDir); Directory.CreateDirectory(skiesDir); } catch (Exception e) { Log("no folder " + dir + ": " + e.Message); }
             cape.Dir = capesDir; cape.Who = tracker; cape.Skin = skin;
+            sky.Dir = skiesDir;
             skin.Dir = skinsDir; skin.ReportFile = Path.Combine(dir, "skin.txt");
             ReadSettings(true);
             Log("mod " + Boot.Version + " loaded – " + dir + (Player.There ? "" : " (the game's PlayerInfo is missing)"));
@@ -185,7 +192,7 @@ namespace Resurf
             WriteSave("start");
         }
 
-        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); skin.Dispose(); tracker.Dispose(); }
+        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); skin.Dispose(); sky.Dispose(); tracker.Dispose(); }
 
         // after the animations of the frame: the skin takes the game's pose, the cape follows the runner
         void LateUpdate()
@@ -199,7 +206,7 @@ namespace Resurf
             catch (Exception e) { cape.Fail("the cape stopped: " + e.Message); }
         }
 
-        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; tracker.Forget(); }
+        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; nextSky = 0f; tracker.Forget(); }
 
         void Update()
         {
@@ -216,6 +223,8 @@ namespace Resurf
             // prefabs come later than the scene (the coins' pool, popups): look again for a while
             if (fixGlow && now < glowUntil && now >= nextGlow) { nextGlow = now + 2f; FixGlows(); }
             if (fixGlow && now >= glowUntil && !glowSaid) { glowSaid = true; Log("glow: no glow material came in 30 seconds"); }
+            // the sky: the theme can bring copies of its material, so it is looked at again every two seconds
+            if (now >= nextSky) { nextSky = now + 2f; try { sky.Tick(); } catch (Exception e) { sky.Status = "the sky: " + e.Message; Log("sky: " + e.Message); } }
         }
 
         void OnApplicationFocus(bool focus) { if (!focus) SaveGame("the window lost focus"); }
@@ -375,6 +384,12 @@ namespace Resurf
                     if (line.StartsWith("CAPE_FLIP=")) cape.Flip = line.Substring(10).Trim() == "on";
                     if (line.StartsWith("AUTOSAVE=") && int.TryParse(line.Substring(9), NumberStyles.None, CultureInfo.InvariantCulture, out n))
                         autosave = n;
+                    if (line.StartsWith("SKY="))
+                    {
+                        var d = line.Substring(4).Trim();
+                        d = Array.IndexOf(SkyArt.Skies, d) >= 0 || d.StartsWith("file:", StringComparison.Ordinal) && d.Length > 5 ? d : "original";
+                        if (d != sky.Want) { sky.Want = d; nextSky = 0f; }
+                    }
                 }
             }
             catch (Exception) { }
@@ -390,7 +405,7 @@ namespace Resurf
         }
 
         // the settings the mod and the menu own – the other lines of the file (Lotus's own) stay as they are
-        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=", "SKIN=", "SKIN_SIZE=", "SKIN_HEIGHT=", "SKIN_FLIP=" };
+        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=", "SKIN=", "SKIN_SIZE=", "SKIN_HEIGHT=", "SKIN_FLIP=", "SKY=" };
 
         void WriteSettings()
         {
@@ -416,6 +431,7 @@ namespace Resurf
                 lines.Add("SKIN_SIZE=" + skin.Size.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("SKIN_HEIGHT=" + skin.Height.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("SKIN_FLIP=" + (skin.Flip ? "on" : "off"));
+                lines.Add("SKY=" + sky.Want);
                 File.WriteAllText(settingsFile, string.Join("\n", lines.ToArray()) + "\n");
                 settingsTime = File.GetLastWriteTimeUtc(settingsFile);
             }
@@ -440,6 +456,7 @@ namespace Resurf
             cape.Rescan();
             capeFiles = cape.Files();
             skinFiles = skin.Files();
+            skyFiles = sky.Files();
         }
 
         // a folder of the mod, shown in the Finder
@@ -479,6 +496,7 @@ namespace Resurf
 
             DrawSkinMenu();
             DrawCapeMenu();
+            DrawSkyMenu();
 
             GUILayout.Space(8f);
             GUILayout.Label("Game speed: " + speed.ToString("0.00", CultureInfo.InvariantCulture) + "x");
@@ -590,6 +608,33 @@ namespace Resurf
             if (GUILayout.Button("Rescan")) Rescan();
             GUILayout.EndHorizontal();
             if (capeDirty && Event.current.type == EventType.MouseUp) { capeDirty = false; WriteSettings(); }
+        }
+
+        // the sky: the game's own, one the mod paints, or a picture from the skies folder – shown at once
+        void DrawSkyMenu()
+        {
+            GUILayout.Space(8f);
+            GUILayout.Label("Sky", menuTitle);
+            var skies = new List<string>(SkyArt.Skies);
+            skies.AddRange(skyFiles);
+            var names = new List<string> { "The game's own", "Sunset", "Night", "Neon", "Aurora", "Day" };
+            foreach (var f in skyFiles) names.Add(f.Substring(5));
+            int sel = Mathf.Max(0, skies.IndexOf(sky.Want));
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical();
+            int pick = GUILayout.SelectionGrid(sel, names.ToArray(), 2);
+            if (pick != sel) { sky.Want = skies[pick]; nextSky = 0f; WriteSettings(); }
+            GUILayout.EndVertical();
+            GUILayout.FlexibleSpace();
+            var slot = GUILayoutUtility.GetRect(80f, 80f);
+            if (sky.Preview != null && sky.Want != "original") GUI.DrawTexture(new Rect(slot.x, slot.y, 80f, 80f), sky.Preview, ScaleMode.ScaleAndCrop);
+            GUILayout.EndHorizontal();
+            if (skyFiles.Count == 0) GUILayout.Label("Your own sky: put a picture (png or jpg, a panorama too) into the skies folder, or: lotus surf sky add <picture>", menuNote);
+            if (sky.Status.Length > 0) GUILayout.Label(sky.Status, menuNote);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Open skies folder")) OpenFolder(skiesDir);
+            if (GUILayout.Button("Rescan")) Rescan();
+            GUILayout.EndHorizontal();
         }
 
         void AddCoins(int n)

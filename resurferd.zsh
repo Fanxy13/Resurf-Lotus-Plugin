@@ -13,6 +13,7 @@
 #   lotus surf fps [on|off]         the FPS counter in the game · glow fix|original · mod on|off
 #   lotus surf cape [off|inferno|galaxy|<picture>|add <picture>]   the runner's cape (also in the game: F1 or M, the menu)
 #   lotus surf skin [off|<model>|add <model.glb>]                   another 3D model for the runner
+#   lotus surf sky [sunset|night|neon|aurora|day|original|<picture>|add <picture>]   the sky behind the track
 # The Resurf mod (mod/ResurfMod.dll, its source in mod/src) goes into the app with the rest of _rs_fix: the game
 # loads it at start. It fixes the coins' glow, saves the game reliably, writes a readable save, shows the FPS and
 # takes coins from Lotus – the files it shares with Lotus are in <the game's folder>/resurf (_rs_gamedata).
@@ -1004,6 +1005,54 @@ rs_skin() {
   ui_success "The skin $name – a running game shows it within a few seconds"
 }
 
+# lotus surf sky [original|sunset|night|neon|aurora|day|<your picture>|add <picture>|list]: the sky behind the track –
+# five the mod paints, or a picture of yours in <the game's folder>/resurf/skies. A running game shows it within two
+# seconds. add takes what macOS' sips reads (heic, webp, tiff …) and makes it a PNG, at most 4096 pixels wide.
+rs_sky() {
+  _rs_gamedata
+  local gd=$REPLY dir="$REPLY/resurf/skies" f name src
+  local -a skies=(original sunset night neon aurora day)
+  _rs_kv "$gd/resurf/settings"
+  if [[ -z $1 || $1 == list ]]; then
+    ui_kv Sky "${KV[SKY]:-original} – lotus surf sky ${(j:, :)skies[2,-1]}, original, or a picture (lotus surf sky add <picture>)"
+    for f in $dir/*.(png|jpg|jpeg)(N:t); do ui_dim "  $f"; done
+    return 0
+  fi
+  if [[ $1 == add ]]; then
+    src=${2/#\~/$HOME}
+    [[ -n $src && $src != /* ]] && src=${LOTUS_PWD:-$PWD}/$src
+    if [[ -f $src ]] && (( $+commands[sips] )); then
+      # through sips: any picture macOS reads becomes a PNG – a big panorama smaller (the game holds it in memory)
+      name=${${src:t:r}//[^A-Za-z0-9._ -]/_}.png
+      local -a size=(${(f)"$(sips -g pixelWidth -g pixelHeight $src 2>/dev/null | awk '/pixel(Width|Height)/ { print $2 }')"})
+      [[ $size[1] == <-> ]] || { ui_error "That is no picture macOS can read: ${src:t}" "" "png, jpg, heic, webp, tiff …"; return 1 }
+      local -a resize=()
+      (( size[1] > 4096 || size[2] > 4096 )) && resize=(-Z 4096)
+      mkdir -p -- $dir && sips -s format png $resize $src --out $dir/$name >/dev/null 2>&1 \
+        || { ui_error "sips could not make a PNG of ${src:t}"; return 1 }
+    else
+      _rs_addfile $dir "$2" "png jpg jpeg" "a picture (png or jpg)" || return 1
+      name=$REPLY
+    fi
+    _rs_mod_ready || return 1
+    _rs_mod_setting SKY "file:$name"
+    ui_success "Your sky $name is in – a running game shows it within two seconds; a panorama (2:1) works too"
+    return 0
+  fi
+  if (( ! ${skies[(Ie)$1]} )); then
+    name=${1:t}
+    [[ -f $dir/$name ]] || { ui_error "Unknown: lotus surf sky $1" "" "lotus surf sky ${(j:, :)skies}, a picture from $dir, or add <picture>"; return 2 }
+    _rs_mod_ready || return 1
+    _rs_mod_setting SKY "file:$name"
+    ui_success "Your sky $name – a running game shows it within two seconds"
+    return 0
+  fi
+  _rs_mod_ready || return 1
+  _rs_mod_setting SKY $1
+  if [[ $1 == original ]]; then ui_success "The game's own sky again"
+  else ui_success "The sky ${(C)1} – a running game shows it within two seconds; the menu (F1) has them all"; fi
+}
+
 # lotus surf stats: what the game saved – the mod writes it readable next to the game's own save
 rs_stats() {
   _rs_gamedata
@@ -1084,6 +1133,8 @@ rs_help() {
   lotus surf cape inferno|galaxy|off   a cape for the runner – more of it in the game's menu (F1)
   lotus surf cape add <picture>   a cape of your own (png, jpg)
   lotus surf skin add <model.glb>   another 3D model for the runner – lotus surf skin off for the game's own
+  lotus surf sky sunset|night|neon|aurora|day|original   the sky behind the track
+  lotus surf sky add <picture>    a sky of your own – any picture, a panorama (2:1) too
   lotus surf mod on|off           the Resurf mod in the game, or the game as it is"
   ui_blank
   ui_path $D/settings
@@ -1107,6 +1158,7 @@ case ${1:-play} in
   glow)                        rs_glow "$2" ;;
   cape)                        rs_cape "$2" "$3" ;;
   skin|skins)                  rs_skin "$2" "$3" ;;
+  sky|skies)                   rs_sky "$2" "$3" ;;
   stats|save|score)            rs_stats ;;
   mod)                         rs_mod "$2" ;;
   tool-play)                   rs_tool_play ;;

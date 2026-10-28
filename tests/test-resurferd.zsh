@@ -156,6 +156,20 @@ check_has "skin: a word it does not know" "$(lotus surf skin nothing 2>&1 | plai
 check_has "skin: off" "$(lotus surf skin off 2>&1 | plain)" "The game's own model"
 check_has "  off in the game's settings" "$(<$GD/resurf/settings)" "SKIN=off"
 
+# ── the sky: five the mod paints, a picture of yours (a 1 × 1 PNG), the game's own ──
+check_has "sky: what there is" "$(lotus surf sky 2>&1 | plain)" "lotus surf sky sunset, night, neon, aurora, day, original"
+check_has "sky: sunset" "$(lotus surf sky sunset 2>&1 | plain)" "The sky Sunset"
+check_has "  for the game" "$(<$GD/resurf/settings)" "SKY=sunset"
+check_has "sky: a word it does not know" "$(lotus surf sky purple 2>&1 | plain)" "Unknown: lotus surf sky purple"
+print -r -- 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' | base64 --decode >| "$HOME/My Sky.png"
+check_has "sky add: a picture of yours" "$(lotus surf sky add "$HOME/My Sky.png" 2>&1 | plain)" "Your sky My Sky.png is in"
+check "  in the skies folder, a PNG" eval '[[ $(head -c 4 "$GD/resurf/skies/My Sky.png" | tail -c 3) == PNG ]]'
+check_has "  and the game is told" "$(<$GD/resurf/settings)" "SKY=file:My Sky.png"
+check "sky add: not a picture – refused" eval '[[ $(lotus surf sky add $R/releases.json 2>&1) == *(no picture|not a picture)* ]]'
+check_has "  the sky stays" "$(<$GD/resurf/settings)" "SKY=file:My Sky.png"
+check_has "sky: back to the game's own" "$(lotus surf sky original 2>&1 | plain)" "The game's own sky again"
+check_has "sky: your picture by its name" "$(lotus surf sky 'My Sky.png' 2>&1 | plain)" "Your sky My Sky.png"
+
 print -r -- 'a newer mod' >| $HOME/ResurfMod.dll
 check_has "a newer mod: the game has it not yet" "$(lotus surf mod 2>&1 | plain)" "has it not yet"
 lotus surf mod on >/dev/null 2>&1

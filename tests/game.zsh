@@ -91,9 +91,20 @@ print -r -- "  the launcher:"; sed 's/^/    /' $exe
 if codesign --verify --deep --strict $A 2>$OUT/codesign.txt; then ok "signed for this Mac, with the mod: $(codesign -dv $A 2>&1 | grep -m1 '^Signature=')"
 else fail "the signature does not hold:"; sed 's/^/    /' $OUT/codesign.txt; fi
 
-say "Coins and the FPS counter, while the game is closed"
+say "Coins, the FPS counter and a sky, while the game is closed"
 lotus surf coins 5000
 lotus surf fps on
+lotus surf sky sunset
+# a panorama for later: 256 × 128, a gradient – PNG by hand (zlib), so nothing but python3 is needed
+cat >| $OUT/make-panorama.py <<'EOF'
+import struct, sys, zlib
+w, h = 256, 128
+rows = b"".join(b"\0" + b"".join(bytes([x, 64 + y // 2, 255 - y]) for x in range(w)) for y in range(h))
+chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+open(sys.argv[1], "wb").write(png)
+EOF
+python3 -I $OUT/make-panorama.py $OUT/panorama.png && print -r -- "  a panorama to give it later: $(file -b $OUT/panorama.png)"
 
 # An Intel build on Apple silicon needs Rosetta 2 (GitHub's runners may not have it yet)
 if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == 1 && $(file -b $exe.game) != *arm64* ]] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
@@ -129,6 +140,12 @@ out=$(lotus surf coins 250); print -r -- "  lotus surf coins 250: ${out## #}"
 waitlog $log "[Resurf] coins +250 → $(( start + 5250 ))" 5 && ok "the game took them: +250 → $(( start + 5250 ))" || fail "the game did not take the 250"
 waitlog $log "[Resurf] glow: glow gold" 20 && ok "$(grep -m1 -F '[Resurf] glow: glow gold' $log)" || fail "the coins' glow was not fixed: $(grep -F '[Resurf] glow' $log | head -2)"
 grep -F '[Resurf] glow: EFX' $log | head -1 | sed 's/^/  /'
+grep -m1 -F '[Resurf] sky: found' $log | cut -c1-200 | sed 's/^/  /'
+waitlog $log "[Resurf] sky: sunset – 512 × 512" 20 && ok "the sky Sunset is painted" || fail "no sunset: $(grep -F '[Resurf] sky' $log | head -3 | tr '\n' ' ')"
+waitlog $log " shows sunset" 10 && ok "$(grep -m1 -F ' shows sunset' $log | cut -c1-120)" || fail "no sky material shows the sunset"
+out=$(lotus surf sky add $OUT/panorama.png); print -r -- "  lotus surf sky add panorama.png: ${out## #}"
+waitlog $log "[Resurf] sky: file:panorama.png – 256 × 128" 10 && ok "a picture of yours, while it runs: read" || fail "the panorama was not read: $(grep -F '[Resurf] sky' $log | tail -2 | tr '\n' ' ')"
+waitlog $log " shows file:panorama.png" 6 && ok "  and the sky shows it" || fail "no sky material shows the panorama"
 sleep 8
 stop $pid 1 30
 local saved=$(grep -m1 "^COINS=" $GDATA/resurf/save.txt 2>/dev/null)
@@ -140,6 +157,7 @@ log=$OUT/Player-2.log
 run 2; pid=$REPLY
 waitlog $log "[Resurf] coins $(( start + 5250 )) (from the game's save)" 60 \
   && ok "the game loaded its save: $(( start + 5250 )) coins" || fail "not from the save: $(grep -m1 -F '[Resurf] coins' $log)"
+waitlog $log " shows file:panorama.png" 20 && ok "the sky kept: your panorama again" || fail "the sky was not kept: $(grep -F '[Resurf] sky' $log | head -2 | tr '\n' ' ')"
 sleep 10
 stop $pid 2 15
 lotus surf stats

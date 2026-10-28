@@ -73,9 +73,16 @@ real one, so the Finder, the Dock and `lotus surf` start it as before. Nothing o
 - **A cape of your own** – a picture (png or jpg) in the `capes` folder becomes a design next to Inferno and Galaxy
   (menu, *Cape*, or `lotus surf cape add <picture>`). A tall picture fits best: the cape is about 1.8 times as long
   as it is wide, and the picture's transparency is kept. When a skin is on, the cape hangs from the skin's neck.
+- **The sky** – the game draws its sky on a flat plane far behind the track that shows an 8 × 56 pixel strip of its
+  texture atlas: a plain gradient, stretched. The mod paints five skies of its own instead – **Sunset** (a low sun,
+  pink and purple), **Night** (stars, the Milky Way, the moon), **Neon** (synthwave, a striped sun), **Aurora**
+  (green and violet northern lights) and **Day** (blue with soft clouds) – or shows a picture of yours from the
+  `skies` folder. A panorama (2:1, like an HDRI as JPG) is cut to a quarter around its middle with the horizon low;
+  any other picture to a square from its bottom. `lotus surf sky sunset|night|neon|aurora|day|original`, or the menu
+  (*Sky*); a running game changes within two seconds.
 - **A menu in the game** – **M** or **F1** opens it (Esc or the same key closes it): the FPS counter, the coins' glow,
-  the skin, the cape, the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins
-  (+100, +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`, `CAPE`, `CAPE_SIZE`, `CAPE_HEIGHT`, `CAPE_FLIP`, `SKIN`, `SKIN_SIZE`, `SKIN_HEIGHT`, `SKIN_FLIP`) and
+  the skin, the cape, the sky, the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins
+  (+100, +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`, `CAPE`, `CAPE_SIZE`, `CAPE_HEIGHT`, `CAPE_FLIP`, `SKIN`, `SKIN_SIZE`, `SKIN_HEIGHT`, `SKIN_FLIP`, `SKY`) and
   is there at the next start. A click on the menu can reach the game behind it, so use it on the start screen or
   while the game is paused.
 
@@ -104,7 +111,20 @@ the repository. `zsh mod/build.zsh <the app>` builds the DLL yourself (with .NET
 | `lotus surf cape add <picture>` | a cape of your own (png, jpg) – and `lotus surf cape inferno\|galaxy\|off` |
 | `lotus surf cape inferno\|galaxy\|off` | a cape for the runner – size, height and more in the game's menu (**F1**) |
 | `lotus surf glow fix\|original` | the coins' glow without the black edge (the default), or as the project draws it |
+| `lotus surf sky sunset\|night\|neon\|aurora\|day\|original` | the sky behind the track – five the mod paints, or the game's own |
+| `lotus surf sky add <picture>` | a sky of your own – png, jpg, and what macOS reads (heic, webp …); a panorama works too |
 | `lotus surf mod on\|off` | the Resurf mod in the game, or the game as it is |
+
+### Skies to download
+
+Any picture of a sky works – a photo of your own, too. Free ones you may use as you like (CC0):
+
+- [Poly Haven HDRIs](https://polyhaven.com/hdris) – choose one, then **Tonemapped JPG** (not HDR/EXR); 2K or 4K
+  is plenty. The *Outdoor › Sunrise-Sunset*, *Night* and *Skies* categories suit the game best.
+- [ambientCG HDRIs](https://ambientcg.com/list?type=hdri) – the download with **TONEMAPPED** in its name is a JPG.
+
+A skybox of six pictures (a cubemap) works with one of them: take the front one. Then:
+`lotus surf sky add ~/Downloads/<the picture>`.
 
 `lotus resurferd …` is the same as `lotus surf …`, and in a Lotus shell both work as `/surf`. The AI in `/ai` can
 start the game too.
