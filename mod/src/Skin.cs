@@ -139,6 +139,7 @@ namespace Resurf
         sealed class Aim { public Transform G, Gt; public Vector3 RestDir; public Quaternion RestRot; public Transform B, Bt; public string Name; }
 
         string loaded = "off";
+        bool failed;
         Load pending;
         GameObject root;
         Transform[] nodes;
@@ -199,19 +200,20 @@ namespace Resurf
             if (want != loaded || reload)
             {
                 reload = false;
+                failed = false;
                 Unload();
                 loaded = want;
                 Status = "";
                 if (want != "off") StartLoad(want);
             }
-            if (loaded == "off") return;
+            if (loaded == "off" || failed) return;
             if (pending != null && pending.Done)
             {
                 var p = pending;
-                if (p.Error != null) { Status = "could not read " + loaded + ": " + p.Error; Debug.Log("[Resurf] skin: " + Status); pending = null; Want = "off"; loaded = "off"; return; }
+                if (p.Error != null) { Fail("could not read " + loaded + ": " + p.Error, null); return; }
                 if (!t.Has) { Status = "waiting for a character …"; return; }   // the build needs the game's own material
                 try { Build(p.Model, t); }
-                catch (Exception e) { Status = "could not build " + loaded + ": " + e.Message; Debug.Log("[Resurf] skin: " + Status + "\n" + e); Unload(); Want = "off"; loaded = "off"; return; }
+                catch (Exception e) { Fail("could not build " + loaded + ": " + e.Message, e); return; }
                 pending = null;
             }
             if (root == null) return;
@@ -220,6 +222,17 @@ namespace Resurf
             if (bound != t.Current || boundVersion != t.Version) Bind(t);
             if (root == null) return;
             Drive(t);
+        }
+
+        // the skin did not work: the game's own model is back, the menu says why, and the choice stays (it is tried again
+        // when another is chosen or Rescan is pressed)
+        public void Fail(string message, Exception e)
+        {
+            failed = true;
+            Unload();
+            Status = message;
+            Debug.Log("[Resurf] skin: " + message + (e == null ? "" : "\n" + e));
+            try { if (!string.IsNullOrEmpty(ReportFile)) File.WriteAllText(ReportFile, "skin " + loaded + ": " + message + (e == null ? "" : "\n\n" + e) + "\n"); } catch (Exception) { }
         }
 
         void StartLoad(string file)
@@ -244,13 +257,21 @@ namespace Resurf
         {
             if (i < 0 || i >= m.Images.Length || m.Images[i] == null) return null;
             if (textures[i] != null) return textures[i];
-            var img = m.Images[i];
+            var tex = ToTexture(m.Images[i], TextureWrapMode.Repeat);
+            textures[i] = tex;
+            return tex;
+        }
+
+        // a picture as a texture with all its mip levels (SetPixels32: LoadRawTextureData would want every level)
+        internal static Texture2D ToTexture(GltfImage img, TextureWrapMode wrap)
+        {
             var tex = new Texture2D(img.W, img.H, TextureFormat.RGBA32, true);
-            tex.LoadRawTextureData(img.Rgba);
-            tex.wrapMode = TextureWrapMode.Repeat;
+            var px = new Color32[img.W * img.H];
+            for (int k = 0; k < px.Length; k++) px[k] = new Color32(img.Rgba[k * 4], img.Rgba[k * 4 + 1], img.Rgba[k * 4 + 2], img.Rgba[k * 4 + 3]);
+            tex.SetPixels32(px);
+            tex.wrapMode = wrap;
             tex.filterMode = FilterMode.Bilinear;
             tex.Apply(true, true);
-            textures[i] = tex;
             return tex;
         }
 

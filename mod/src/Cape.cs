@@ -267,6 +267,7 @@ namespace Resurf
         public float Size = 1f, Height = 0f;
         public bool Flip;
         public string Status = "";
+        string failedDesign;                // a design that threw: off until another is chosen
         public Tracker Who;                 // the character to follow
         public SkinModel Skin;              // a skin in the game: the cape hangs from its neck then
         public string Dir = "";             // the folder of the pictures: <the mod's folder>/capes
@@ -360,10 +361,8 @@ namespace Resurf
             {
                 var img = Png.Decode(bytes);
                 if (img == null) { UnityEngine.Object.Destroy(tex); throw new FormatException("not a picture this build can read (a PNG works everywhere)"); }
-                img = Png.Shrink(img, 2048);
-                tex.Resize(img.W, img.H);
-                tex.LoadRawTextureData(img.Rgba);
-                tex.Apply(true);
+                UnityEngine.Object.Destroy(tex);
+                tex = SkinModel.ToTexture(Png.Shrink(img, 2048), TextureWrapMode.Clamp);
             }
             tex.wrapMode = TextureWrapMode.Clamp;
             tex.filterMode = FilterMode.Bilinear;
@@ -375,9 +374,19 @@ namespace Resurf
             if (go != null) UnityEngine.Object.Destroy(go);
         }
 
+        public void Fail(string message)
+        {
+            failedDesign = Design;
+            Status = message;
+            if (go != null) go.SetActive(false);
+            Debug.Log("[Resurf] cape: " + message);
+        }
+
         // once per frame, after the animations: LateUpdate
         public void Tick()
         {
+            if (failedDesign != null && failedDesign != Design) failedDesign = null;
+            if (failedDesign != null) { if (go != null && go.activeSelf) go.SetActive(false); return; }
             if (Design == "off" || Frames(Design) == null) { if (go != null && go.activeSelf) go.SetActive(false); Status = Design == "off" ? "" : "this design could not be made"; return; }
             // from what does it hang: the skin's neck, or the game's own character
             Transform bone; float lift, height; Transform face;

@@ -52,7 +52,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "2.0";
+        public const string Version = "2.1";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -194,9 +194,9 @@ namespace Resurf
             try { tracker.Tick(cape.Design != "off" || skinOn); }
             catch (Exception e) { Log("character: " + e.Message); }
             try { skin.Tick(tracker); }
-            catch (Exception e) { Log("skin: " + e.Message + " – the skin is off"); skin.Status = e.Message; skin.Want = "off"; }
+            catch (Exception e) { skin.Fail("the skin stopped: " + e.Message, e); }
             try { cape.Tick(); }
-            catch (Exception e) { Log("cape: " + e.Message + " – the cape is off"); cape.Design = "off"; }
+            catch (Exception e) { cape.Fail("the cape stopped: " + e.Message); }
         }
 
         void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; tracker.Forget(); }
@@ -539,8 +539,8 @@ namespace Resurf
                 if (height != skin.Height) { skin.Height = height; skinDirty = true; }
                 bool flip = GUILayout.Toggle(skin.Flip, " Other way round (if it runs backwards)");
                 if (flip != skin.Flip) { skin.Flip = flip; WriteSettings(); }
-                if (skin.Status.Length > 0) GUILayout.Label(skin.Status, menuNote);
             }
+            if (skin.Status.Length > 0) GUILayout.Label(skin.Status, menuNote);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Open skins folder")) OpenFolder(skinsDir);
             if (GUILayout.Button("Rescan")) { Rescan(); if (skin.Want != "off") skin.Reload(); }
@@ -579,8 +579,8 @@ namespace Resurf
                 if (height != cape.Height) { cape.Height = height; capeDirty = true; }
                 bool flip = GUILayout.Toggle(cape.Flip, " Other way round (if it hangs at the front)");
                 if (flip != cape.Flip) { cape.Flip = flip; WriteSettings(); }
-                if (cape.Status.Length > 0) GUILayout.Label(cape.Status, menuNote);
             }
+            if (cape.Status.Length > 0) GUILayout.Label(cape.Status, menuNote);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Next character")) tracker.Next();
             if (GUILayout.Button("Look again")) tracker.Forget();
