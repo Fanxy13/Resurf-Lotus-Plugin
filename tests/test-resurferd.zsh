@@ -170,6 +170,20 @@ check_has "  the sky stays" "$(<$GD/resurf/settings)" "SKY=file:My Sky.png"
 check_has "sky: back to the game's own" "$(lotus surf sky original 2>&1 | plain)" "The game's own sky again"
 check_has "sky: your picture by its name" "$(lotus surf sky 'My Sky.png' 2>&1 | plain)" "Your sky My Sky.png"
 
+# ── the look: a preset brings sharper with it, off takes it away; sharper on its own ──
+check_has "look: what there is" "$(lotus surf look 2>&1 | plain)" "lotus surf look pretty, vivid, dreamy, off"
+check_has "look: pretty" "$(lotus surf look pretty 2>&1 | plain)" "The look Pretty, sharper too"
+check_has "  for the game" "$(<$GD/resurf/settings)" $'LOOK=pretty\nSHARP=on'
+check_has "look sharp: off" "$(lotus surf look sharp off 2>&1 | plain)" "The game's own sharpness again"
+check_has "  the look stays" "$(<$GD/resurf/settings)" $'LOOK=pretty\nSHARP=off'
+check_has "look sharp, no word: it switches" "$(lotus surf look sharp 2>&1 | plain)" "Sharper: 8× anti-aliasing"
+check_has "look: shown" "$(lotus surf look 2>&1 | plain)" "on – lotus surf look sharp on, or off"
+check_has "look: a word it does not know" "$(lotus surf look shiny 2>&1 | plain)" "Unknown: lotus surf look shiny"
+check_has "look sharp: a word it does not know" "$(lotus surf look sharp maybe 2>&1 | plain)" "lotus surf look sharp on, or off"
+check_has "look: shader is a word for it too" "$(lotus surf shader vivid 2>&1 | plain)" "The look Vivid"
+check_has "look: off" "$(lotus surf look off 2>&1 | plain)" "The game's own look again"
+check_has "  off for the game, sharper too" "$(<$GD/resurf/settings)" $'LOOK=off\nSHARP=off'
+
 print -r -- 'a newer mod' >| $HOME/ResurfMod.dll
 check_has "a newer mod: the game has it not yet" "$(lotus surf mod 2>&1 | plain)" "has it not yet"
 lotus surf mod on >/dev/null 2>&1

@@ -80,15 +80,25 @@ real one, so the Finder, the Dock and `lotus surf` start it as before. Nothing o
   `skies` folder. A panorama (2:1, like an HDRI as JPG) is cut to a quarter around its middle with the horizon low;
   any other picture to a square from its bottom. `lotus surf sky sunset|night|neon|aurora|day|original`, or the menu
   (*Sky*); a running game changes within two seconds.
+- **The look** – a finish over the game's picture, and a sharper picture. **Pretty**, **Vivid** and **Dreamy** mix
+  four parts: a *glow* on what is bright (coins, lights, the sun – only what is brighter than about half, blurred
+  and added), *contrast* around the middle grey, *warmth* (warmer light; on the slider's left, cooler) and *darker
+  corners* (a soft vignette). *Sharper* comes with a preset: 8× anti-aliasing (the game has none or 2×), anisotropic
+  filtering on every texture so the track far ahead stays sharp, and the textures at full size. The finish lies
+  over the world only – the interface draws after it and stays as it is. A Unity player compiles no shaders, so the
+  mod builds the finish from the blending of shaders every player has (Unity's own `Hidden/Internal-Colored` and the
+  game's `Mobile/Particles/Additive`) after the world camera has drawn. `lotus surf look pretty|vivid|dreamy|off`,
+  `lotus surf look sharp on|off` alone, or the menu (*Look*: a slider for each part). If the FPS drop, turn
+  *Sharper* off first.
 - **A menu in the game** – **M** or **F1** opens it (Esc or the same key closes it): the FPS counter, the coins' glow,
-  the skin, the cape, the sky, the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins
-  (+100, +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`, `CAPE`, `CAPE_SIZE`, `CAPE_HEIGHT`, `CAPE_FLIP`, `SKIN`, `SKIN_SIZE`, `SKIN_HEIGHT`, `SKIN_FLIP`, `SKY`) and
+  the skin, the cape, the sky, the look, the game's speed (0.25x–3x), how often the mod saves (never, 10, 20 or 60 seconds), *Save now* and coins
+  (+100, +1,000, +10,000). What you set is kept in the `settings` file of the mod (`FPS`, `GLOW`, `SPEED`, `AUTOSAVE`, `CAPE`, `CAPE_SIZE`, `CAPE_HEIGHT`, `CAPE_FLIP`, `SKIN`, `SKIN_SIZE`, `SKIN_HEIGHT`, `SKIN_FLIP`, `SKY`, `LOOK`, `LOOK_GLOW`, `LOOK_CONTRAST`, `LOOK_WARMTH`, `LOOK_VIGNETTE`, `SHARP`) and
   is there at the next start. A click on the menu can reach the game behind it, so use it on the start screen or
   while the game is paused.
 
 GitHub Actions builds the DLL against the libraries of the game's own Mac build, takes Doorstop's official macOS
 build (checked against GitHub's SHA-256), tests both in the game – coins that waited, coins while it runs, the glow,
-the coins still there after a restart, the game started by macOS as the Dock does – and only then puts them into
+the sky, the look's shaders and camera, the coins still there after a restart, the game started by macOS as the Dock does – and only then puts them into
 the repository. `zsh mod/build.zsh <the app>` builds the DLL yourself (with .NET's `csc` or Mono's `mcs`).
 
 ## Commands
@@ -113,6 +123,8 @@ the repository. `zsh mod/build.zsh <the app>` builds the DLL yourself (with .NET
 | `lotus surf glow fix\|original` | the coins' glow without the black edge (the default), or as the project draws it |
 | `lotus surf sky sunset\|night\|neon\|aurora\|day\|original` | the sky behind the track – five the mod paints, or the game's own |
 | `lotus surf sky add <picture>` | a sky of your own – png, jpg, and what macOS reads (heic, webp …); a panorama works too |
+| `lotus surf look pretty\|vivid\|dreamy\|off` | a finish over the picture – glow, contrast, warmth, darker corners – and sharper |
+| `lotus surf look sharp on\|off` | only sharper: 8× anti-aliasing, sharp textures far ahead |
 | `lotus surf mod on\|off` | the Resurf mod in the game, or the game as it is |
 
 ### Skies to download

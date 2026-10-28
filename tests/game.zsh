@@ -91,10 +91,11 @@ print -r -- "  the launcher:"; sed 's/^/    /' $exe
 if codesign --verify --deep --strict $A 2>$OUT/codesign.txt; then ok "signed for this Mac, with the mod: $(codesign -dv $A 2>&1 | grep -m1 '^Signature=')"
 else fail "the signature does not hold:"; sed 's/^/    /' $OUT/codesign.txt; fi
 
-say "Coins, the FPS counter and a sky, while the game is closed"
+say "Coins, the FPS counter, a sky and a look, while the game is closed"
 lotus surf coins 5000
 lotus surf fps on
 lotus surf sky sunset
+lotus surf look pretty
 # a panorama for later: 256 × 128, a gradient – PNG by hand (zlib), so nothing but python3 is needed
 cat >| $OUT/make-panorama.py <<'EOF'
 import struct, sys, zlib
@@ -146,7 +147,14 @@ waitlog $log " shows sunset" 10 && ok "$(grep -m1 -F ' shows sunset' $log | cut 
 out=$(lotus surf sky add $OUT/panorama.png); print -r -- "  lotus surf sky add panorama.png: ${out## #}"
 waitlog $log "[Resurf] sky: file:panorama.png – 256 × 128" 10 && ok "a picture of yours, while it runs: read" || fail "the panorama was not read: $(grep -F '[Resurf] sky' $log | tail -2 | tr '\n' ' ')"
 waitlog $log " shows file:panorama.png" 6 && ok "  and the sky shows it" || fail "no sky material shows the panorama"
-sleep 8
+# the look: the shaders it builds the finish from, sharper, the finish on the world camera (no picture here – no GPU)
+waitlog $log "[Resurf] look: Hidden/Internal-Colored" 10 && print -r -- "  $(grep -m1 -F '[Resurf] look: Hidden' $log | cut -c1-120)"
+grep -q -F '[Resurf] look: Hidden/Internal-Colored yes' $log && ok "the look's shaders are in this build" || fail "no Hidden/Internal-Colored for the look"
+waitlog $log "[Resurf] look: sharper" 5 && ok "$(grep -m1 -F '[Resurf] look: sharper' $log | cut -c1-140)" || fail "not sharper: $(grep -F '[Resurf] look' $log | head -3 | tr '\n' ' ')"
+waitlog $log "[Resurf] look: pretty on the camera" 10 && ok "$(grep -m1 -F '[Resurf] look: pretty on' $log | cut -c1-120)" || fail "the look found no camera: $(grep -F '[Resurf] look' $log | head -3 | tr '\n' ' ')"
+out=$(lotus surf look sharp off); print -r -- "  lotus surf look sharp off: ${out## #}"
+waitlog $log "[Resurf] look: the game's own quality again" 6 && ok "  sharper off, while it runs" || fail "sharper did not go off"
+sleep 5
 stop $pid 1 30
 local saved=$(grep -m1 "^COINS=" $GDATA/resurf/save.txt 2>/dev/null)
 [[ $saved == "COINS=$(( start + 5250 ))" ]] && ok "save.txt: $saved" || fail "save.txt says ${saved:-nothing}"
@@ -158,6 +166,8 @@ run 2; pid=$REPLY
 waitlog $log "[Resurf] coins $(( start + 5250 )) (from the game's save)" 60 \
   && ok "the game loaded its save: $(( start + 5250 )) coins" || fail "not from the save: $(grep -m1 -F '[Resurf] coins' $log)"
 waitlog $log " shows file:panorama.png" 20 && ok "the sky kept: your panorama again" || fail "the sky was not kept: $(grep -F '[Resurf] sky' $log | head -2 | tr '\n' ' ')"
+waitlog $log "[Resurf] look: pretty on the camera" 10 && ok "the look kept: pretty" || fail "the look was not kept: $(grep -F '[Resurf] look' $log | head -2 | tr '\n' ' ')"
+grep -q -F '[Resurf] look: sharper' $log && fail "sharper came back" || ok "  sharper stayed off"
 sleep 10
 stop $pid 2 15
 lotus surf stats

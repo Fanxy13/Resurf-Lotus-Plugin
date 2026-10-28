@@ -6,7 +6,9 @@
 //   settings         from Lotus, the F key and the menu: FPS=on|off, GLOW=fix|original, SPEED=<0.25–3>, AUTOSAVE=<seconds, 0 = off>,
 //                    CAPE=off|inferno|galaxy|file:<picture>, CAPE_SIZE=<0.5–5>, CAPE_HEIGHT=<-1–1>, CAPE_FLIP=on|off,
 //                    SKIN=off|<file.glb>, SKIN_SIZE=<0.3–3>, SKIN_HEIGHT=<-1–1>, SKIN_FLIP=on|off,
-//                    SKY=original|sunset|night|neon|aurora|day|file:<picture>
+//                    SKY=original|sunset|night|neon|aurora|day|file:<picture>,
+//                    LOOK=off|pretty|vivid|dreamy|custom, LOOK_GLOW=<0–1>, LOOK_CONTRAST=<0.7–1.6>, LOOK_WARMTH=<-1–1>,
+//                    LOOK_VIGNETTE=<0–1>, SHARP=on|off
 //   capes/           your pictures for the cape (png, jpg)      skins/   your .glb models      skin.txt  how the last skin was matched
 //   skies/           your pictures for the sky (png, jpg – a panorama too)
 //   save.txt         to Lotus: coins, high score, best distance … and LAST=<id of the newest request done>
@@ -20,6 +22,8 @@
 //   - a cape for the runner (Cape.cs): two designs, Inferno and Galaxy, and pictures of your own (the capes folder)
 //   - skins (Skin.cs): another 3D model for the runner – a .glb in the skins folder, chosen in the menu
 //   - the sky (Sky.cs): five skies the mod paints, or a picture of yours, instead of the game's plain gradient
+//   - the look (Look.cs): a finish over the picture – glow on what is bright, contrast, warmth, a vignette – and
+//     sharper: more anti-aliasing, anisotropic filtering
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -55,7 +59,7 @@ namespace Resurf
 {
     public static class Boot
     {
-        public const string Version = "2.3";
+        public const string Version = "2.4";
 
         // The first loaded scene starts the mod (Unity is ready then)
         public static void Hook()
@@ -156,9 +160,11 @@ namespace Resurf
         readonly Cape cape = new Cape();
         readonly SkinModel skin = new SkinModel();
         readonly Sky sky = new Sky();
+        readonly Look look = new Look();
         string capesDir, skinsDir, skiesDir;
         List<string> capeFiles = new List<string>(), skinFiles = new List<string>(), skyFiles = new List<string>();
-        float nextSky;
+        float nextSky, nextLook;
+        bool lookDirty;
         Vector2 menuScroll;
         float speed = 1f, speedApplied = 1f;
         int autosave = 20;
@@ -192,7 +198,7 @@ namespace Resurf
             WriteSave("start");
         }
 
-        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); skin.Dispose(); sky.Dispose(); tracker.Dispose(); }
+        void OnDestroy() { SceneManager.sceneLoaded -= OnSceneLoaded; cape.Dispose(); skin.Dispose(); sky.Dispose(); look.Dispose(); tracker.Dispose(); }
 
         // after the animations of the frame: the skin takes the game's pose, the cape follows the runner
         void LateUpdate()
@@ -206,7 +212,7 @@ namespace Resurf
             catch (Exception e) { cape.Fail("the cape stopped: " + e.Message); }
         }
 
-        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; nextSky = 0f; tracker.Forget(); }
+        void OnSceneLoaded(Scene scene, LoadSceneMode mode) { glowUntil = Time.realtimeSinceStartup + 30f; nextGlow = 0f; nextSky = 0f; nextLook = 0f; tracker.Forget(); }
 
         void Update()
         {
@@ -225,6 +231,8 @@ namespace Resurf
             if (fixGlow && now >= glowUntil && !glowSaid) { glowSaid = true; Log("glow: no glow material came in 30 seconds"); }
             // the sky: the theme can bring copies of its material, so it is looked at again every two seconds
             if (now >= nextSky) { nextSky = now + 2f; try { sky.Tick(); } catch (Exception e) { sky.Status = "the sky: " + e.Message; Log("sky: " + e.Message); } }
+            // the look: the world camera can change with the scene
+            if (now >= nextLook) { nextLook = now + 2f; try { look.Tick(); } catch (Exception e) { look.Status = "the look: " + e.Message; Log("look: " + e.Message); } }
         }
 
         void OnApplicationFocus(bool focus) { if (!focus) SaveGame("the window lost focus"); }
@@ -357,6 +365,8 @@ namespace Resurf
                 var t = File.GetLastWriteTimeUtc(settingsFile);
                 if (!first && t == settingsTime) return;
                 settingsTime = t;
+                string lookWant = null, sharpWant = null;
+                float lookGlow = look.Glow, lookContrast = look.Contrast, lookWarmth = look.Warmth, lookVignette = look.Vignette;
                 foreach (var raw in File.ReadAllLines(settingsFile))
                 {
                     var line = raw.Trim();
@@ -390,7 +400,25 @@ namespace Resurf
                         d = Array.IndexOf(SkyArt.Skies, d) >= 0 || d.StartsWith("file:", StringComparison.Ordinal) && d.Length > 5 ? d : "original";
                         if (d != sky.Want) { sky.Want = d; nextSky = 0f; }
                     }
+                    if (line.StartsWith("LOOK=")) lookWant = line.Substring(5).Trim();
+                    if (line.StartsWith("LOOK_GLOW=") && float.TryParse(line.Substring(10), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        lookGlow = Mathf.Clamp(f, 0f, 1f);
+                    if (line.StartsWith("LOOK_CONTRAST=") && float.TryParse(line.Substring(14), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        lookContrast = Mathf.Clamp(f, 0.7f, 1.6f);
+                    if (line.StartsWith("LOOK_WARMTH=") && float.TryParse(line.Substring(12), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        lookWarmth = Mathf.Clamp(f, -1f, 1f);
+                    if (line.StartsWith("LOOK_VIGNETTE=") && float.TryParse(line.Substring(14), NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                        lookVignette = Mathf.Clamp(f, 0f, 1f);
+                    if (line.StartsWith("SHARP=")) sharpWant = line.Substring(6).Trim();
                 }
+                // a preset brings its own values (and sharper); custom takes the sliders' – SHARP= has the last word
+                if (lookWant != null)
+                {
+                    if (lookWant == "custom") { look.Preset = "custom"; look.Glow = lookGlow; look.Contrast = lookContrast; look.Warmth = lookWarmth; look.Vignette = lookVignette; }
+                    else look.Use(Array.IndexOf(Look.Presets, lookWant) >= 0 ? lookWant : "off");
+                }
+                if (sharpWant != null) look.Sharp = sharpWant == "on";
+                nextLook = 0f;
             }
             catch (Exception) { }
         }
@@ -405,7 +433,8 @@ namespace Resurf
         }
 
         // the settings the mod and the menu own – the other lines of the file (Lotus's own) stay as they are
-        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=", "SKIN=", "SKIN_SIZE=", "SKIN_HEIGHT=", "SKIN_FLIP=", "SKY=" };
+        static readonly string[] Own = { "FPS=", "GLOW=", "SPEED=", "AUTOSAVE=", "CAPE=", "CAPE_SIZE=", "CAPE_HEIGHT=", "CAPE_FLIP=", "SKIN=", "SKIN_SIZE=", "SKIN_HEIGHT=", "SKIN_FLIP=", "SKY=",
+            "LOOK=", "LOOK_GLOW=", "LOOK_CONTRAST=", "LOOK_WARMTH=", "LOOK_VIGNETTE=", "SHARP=" };
 
         void WriteSettings()
         {
@@ -432,6 +461,12 @@ namespace Resurf
                 lines.Add("SKIN_HEIGHT=" + skin.Height.ToString("0.##", CultureInfo.InvariantCulture));
                 lines.Add("SKIN_FLIP=" + (skin.Flip ? "on" : "off"));
                 lines.Add("SKY=" + sky.Want);
+                lines.Add("LOOK=" + look.Preset);
+                lines.Add("LOOK_GLOW=" + look.Glow.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("LOOK_CONTRAST=" + look.Contrast.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("LOOK_WARMTH=" + look.Warmth.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("LOOK_VIGNETTE=" + look.Vignette.ToString("0.##", CultureInfo.InvariantCulture));
+                lines.Add("SHARP=" + (look.Sharp ? "on" : "off"));
                 File.WriteAllText(settingsFile, string.Join("\n", lines.ToArray()) + "\n");
                 settingsTime = File.GetLastWriteTimeUtc(settingsFile);
             }
@@ -497,6 +532,7 @@ namespace Resurf
             DrawSkinMenu();
             DrawCapeMenu();
             DrawSkyMenu();
+            DrawLookMenu();
 
             GUILayout.Space(8f);
             GUILayout.Label("Game speed: " + speed.ToString("0.00", CultureInfo.InvariantCulture) + "x");
@@ -635,6 +671,40 @@ namespace Resurf
             if (GUILayout.Button("Open skies folder")) OpenFolder(skiesDir);
             if (GUILayout.Button("Rescan")) Rescan();
             GUILayout.EndHorizontal();
+        }
+
+        // the look: a preset, or each part of the finish on its own (then it is "custom"), and sharper
+        void DrawLookMenu()
+        {
+            GUILayout.Space(8f);
+            GUILayout.Label("Look", menuTitle);
+            int sel = Array.IndexOf(Look.Presets, look.Preset);
+            int pick = GUILayout.Toolbar(sel, new[] { "The game's", "Pretty", "Vivid", "Dreamy" });
+            if (pick != sel && pick >= 0) { look.Use(Look.Presets[pick]); nextLook = 0f; WriteSettings(); }
+            if (look.Preset != "off")
+            {
+                float glow = LookSlider("Glow", look.Glow, 0f, 1f);
+                float contrast = LookSlider("Contrast", look.Contrast, 0.7f, 1.6f);
+                float warmth = LookSlider("Warmth (left: cooler)", look.Warmth, -1f, 1f);
+                float vignette = LookSlider("Darker corners", look.Vignette, 0f, 1f);
+                if (glow != look.Glow || contrast != look.Contrast || warmth != look.Warmth || vignette != look.Vignette)
+                {
+                    look.Preset = "custom"; look.Glow = glow; look.Contrast = contrast; look.Warmth = warmth; look.Vignette = vignette;
+                    lookDirty = true; nextLook = 0f;
+                }
+            }
+            bool sharp = GUILayout.Toggle(look.Sharp, " Sharper (8× anti-aliasing, sharp textures far ahead)");
+            if (sharp != look.Sharp) { look.Sharp = sharp; nextLook = 0f; WriteSettings(); }
+            GUILayout.Label(look.Status.Length > 0 ? look.Status : "Over the world only – the interface stays as it is. If the FPS drop: Sharper off.", menuNote);
+            if (lookDirty && Event.current.type == EventType.MouseUp) { lookDirty = false; WriteSettings(); }
+        }
+
+        static float LookSlider(string name, float value, float min, float max)
+        {
+            GUILayout.Label(name + ": " + value.ToString("0.00", CultureInfo.InvariantCulture));
+            // rounded only when it moved – a preset's 0.85 is no step of the slider and would make it "custom"
+            float v = GUILayout.HorizontalSlider(value, min, max);
+            return v == value ? value : Mathf.Round(v * 50f) / 50f;
         }
 
         void AddCoins(int n)

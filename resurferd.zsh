@@ -14,6 +14,7 @@
 #   lotus surf cape [off|inferno|galaxy|<picture>|add <picture>]   the runner's cape (also in the game: F1 or M, the menu)
 #   lotus surf skin [off|<model>|add <model.glb>]                   another 3D model for the runner
 #   lotus surf sky [sunset|night|neon|aurora|day|original|<picture>|add <picture>]   the sky behind the track
+#   lotus surf look [pretty|vivid|dreamy|off|sharp on|off]   a finish over the game's picture, and sharper
 # The Resurf mod (mod/ResurfMod.dll, its source in mod/src) goes into the app with the rest of _rs_fix: the game
 # loads it at start. It fixes the coins' glow, saves the game reliably, writes a readable save, shows the FPS and
 # takes coins from Lotus – the files it shares with Lotus are in <the game's folder>/resurf (_rs_gamedata).
@@ -1053,6 +1054,42 @@ rs_sky() {
   else ui_success "The sky ${(C)1} – a running game shows it within two seconds; the menu (F1) has them all"; fi
 }
 
+# lotus surf look [pretty|vivid|dreamy|off | sharp [on|off]]: a finish over the game's picture – a glow on what is
+# bright, more contrast, warmer light, darker corners – and sharper (8× anti-aliasing, sharp textures far ahead).
+# A preset brings sharper with it, off takes it away. A running game changes within two seconds; the menu (F1) has a
+# slider for each part.
+rs_look() {
+  _rs_gamedata
+  local -a looks=(pretty vivid dreamy off)
+  _rs_kv "$REPLY/resurf/settings"
+  if [[ -z $1 || $1 == list ]]; then
+    ui_kv Look "${KV[LOOK]:-off} – lotus surf look ${(j:, :)looks}"
+    ui_kv Sharper "${KV[SHARP]:-off} – lotus surf look sharp on, or off"
+    return 0
+  fi
+  if [[ $1 == sharp ]]; then
+    local want=$2
+    [[ -n $want ]] || { [[ $KV[SHARP] == on ]] && want=off || want=on }
+    [[ $want == (on|off) ]] || { ui_error "Unknown: lotus surf look sharp $2" "" "lotus surf look sharp on, or off"; return 2 }
+    _rs_mod_ready || return 1
+    _rs_mod_setting SHARP $want
+    if [[ $want == on ]]; then ui_success "Sharper: 8× anti-aliasing, sharp textures far ahead – lotus surf fps shows what it costs"
+    else ui_success "The game's own sharpness again"; fi
+    return 0
+  fi
+  (( ${looks[(Ie)$1]} )) || { ui_error "Unknown: lotus surf look $1" "" "lotus surf look ${(j:, :)looks}, or sharp on|off"; return 2 }
+  _rs_mod_ready || return 1
+  _rs_mod_setting LOOK $1
+  if [[ $1 == off ]]; then
+    _rs_mod_setting SHARP off
+    ui_success "The game's own look again"
+  else
+    _rs_mod_setting SHARP on
+    ui_success "The look ${(C)1}, sharper too – a running game shows it within two seconds; the menu (F1) has a slider for each part"
+    ui_dim "  If the FPS drop (lotus surf fps): lotus surf look sharp off"
+  fi
+}
+
 # lotus surf stats: what the game saved – the mod writes it readable next to the game's own save
 rs_stats() {
   _rs_gamedata
@@ -1093,7 +1130,7 @@ rs_mod() {
     _rs_running && ui_dim "  The open game keeps what it had – quit it (⌘Q) and start it again."
   fi
   if _rs_mod_want; then
-    ui_kv Mod "on – coins from Lotus, a save that holds, an FPS counter, the coins' glow"
+    ui_kv Mod "on – coins from Lotus, a save that holds, an FPS counter, the coins' glow, capes, skins, skies, the look"
     if _rs_exe $APP; then
       _rs_mod_ok $APP && ui_kv Game "has it" || ui_kv Game "has it not yet – lotus surf puts it in when it starts the game"
     fi
@@ -1135,6 +1172,8 @@ rs_help() {
   lotus surf skin add <model.glb>   another 3D model for the runner – lotus surf skin off for the game's own
   lotus surf sky sunset|night|neon|aurora|day|original   the sky behind the track
   lotus surf sky add <picture>    a sky of your own – any picture, a panorama (2:1) too
+  lotus surf look pretty|vivid|dreamy|off   a finish over the picture: glow, contrast, warmth – and sharper
+  lotus surf look sharp on|off    only sharper: 8× anti-aliasing, sharp textures far ahead
   lotus surf mod on|off           the Resurf mod in the game, or the game as it is"
   ui_blank
   ui_path $D/settings
@@ -1159,6 +1198,7 @@ case ${1:-play} in
   cape)                        rs_cape "$2" "$3" ;;
   skin|skins)                  rs_skin "$2" "$3" ;;
   sky|skies)                   rs_sky "$2" "$3" ;;
+  look|shader|shaders|graphics) rs_look "$2" "$3" ;;
   stats|save|score)            rs_stats ;;
   mod)                         rs_mod "$2" ;;
   tool-play)                   rs_tool_play ;;
